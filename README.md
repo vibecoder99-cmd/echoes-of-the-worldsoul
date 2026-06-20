@@ -61,6 +61,29 @@ the system — quiet at first, more present as your attunement deepens.
 
 ---
 
+## Getting a Clean Wrath 3.3.5a Client
+
+Echoes of the Worldsoul expects a clean World of Warcraft Wrath of the Lich King
+3.3.5a client, build 12340.
+
+The current official Battle.net client is not a drop-in replacement for old 3.3.5a
+private-server clients. Use a legally obtained clean 3.3.5a client folder or a
+personal archival backup of one.
+
+Recommended practices:
+
+- Start from a clean 3.3.5a client, build 12340.
+- Avoid repacks, "HD clients," custom launchers, or clients already modified by
+  another server.
+- Keep one untouched backup copy of the client.
+- Make a separate copy for Echoes of the Worldsoul.
+- Install only the server-provided `patch-Z.mpq` into `Data/`.
+- Install only `EchoesOfTheWorldsoulBridge` into `Interface/AddOns/`.
+- If you already have extra `patch-*.mpq` files from another server, remove them
+  or use a fresh client copy before testing.
+
+---
+
 ## Quick Start
 
 See **`INSTALL.md`** for the full step-by-step setup. The short version:

@@ -18,8 +18,10 @@ Before starting, confirm you have:
   enough privileges to run `CREATE TABLE` and `INSERT`.
 - **Python 3.6+** — needed only for the DBC patch step. `python --version` to
   confirm.
-- **WoW 3.3.5a client (build 12340, enUS)** — vanilla and unmodified, for the
-  client-side steps. See the clean-client requirement note in Step 4.
+- **WoW 3.3.5a client (build 12340, enUS)** — a clean, unmodified copy for the
+  client-side steps. The current Battle.net client is not a drop-in replacement.
+  Use a legally obtained 3.3.5a client or a personal archival backup. Avoid
+  repacks or clients already modified by another server.
 - An MPQ editor such as **Ladik's MPQ Editor** (free) for packaging the patched
   DBC into a client patch file.
 
