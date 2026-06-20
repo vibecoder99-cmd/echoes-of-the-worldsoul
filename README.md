@@ -16,8 +16,9 @@ Attunement is per-account and survives item transfers between your characters.
 **Essence** is the primary currency, earned through kills, boss encounters,
 quests, PvP, and item attunement milestones. Essence persists between sessions.
 
-**Mastery** ranks up as you invest Essence. Higher mastery unlocks deeper
-Crucible capacity and increases passive gain rates.
+**Mastery** ranks up as you invest Essence. Higher Mastery increases your
+effective absorption percentage, deepening the stat power you retain from
+attuned gear.
 
 **The Crucible** is a set of 18 investment categories — Life Leech, Spell
 Mitigation, Spell Reflection, XP Rate, item drop bonuses, and more. Essence
@@ -27,9 +28,9 @@ spent in the Crucible is permanent and shared across your account.
 converting them into Worldsoul Residue and a burst of Essence. Each item can be
 dissolved once per account.
 
-**The Attunement Rack** holds up to 9 items and attunes them passively through
-your combat kills, without those items needing to be equipped or even in your
-bags. Expand rack capacity by spending Worldsoul Residue.
+**The Attunement Rack** starts with 3 slots and can be expanded up to 20,
+allowing stored items to attune passively through your combat kills without
+needing to be equipped. Expand rack capacity by spending Worldsoul Residue.
 
 **Resonant Drops** reward bonus Essence when the same item drops for you
 repeatedly — a Legacy Surge activates on the fourth and later duplicate drops.
@@ -55,7 +56,7 @@ the system — quiet at first, more present as your attunement deepens.
 | AzerothCore | 3.3.5a (any recent release) |
 | Eluna Lua engine | Must be enabled in your AzerothCore build |
 | MySQL | acore_characters and acore_world databases |
-| WoW client | 3.3.5a, build 12340 (enUS) — vanilla, unmodified |
+| WoW client | 3.3.5a, build 12340 (enUS). Players need the provided client patch MPQ and EchoesOfTheWorldsoulBridge addon for custom item display and tooltip support. |
 | Python | 3.6+ (only needed to run the DBC patch script) |
 
 ---
@@ -73,6 +74,12 @@ See **`INSTALL.md`** for the full step-by-step setup. The short version:
 6. Install `client_addon/EchoesOfTheWorldsoulBridge/` into your WoW client's
    `Interface/AddOns/` folder.
 7. Restart the server. Type `#ap` in-game to confirm the mod is live.
+
+> **Note:** The public source package does not include MPQ files. Server owners
+> should generate or distribute their own client pack. Players joining a server
+> running Echoes of the Worldsoul need the server-provided client patch MPQ and
+> the EchoesOfTheWorldsoulBridge addon for custom item display and tooltip
+> support.
 
 ---
 
@@ -100,7 +107,7 @@ the scripts.
 
 ```
 echoes-of-the-worldsoul/
-├── lua_scripts/          Server-side Eluna Lua scripts (18 files)
+├── lua_scripts/          Server-side Eluna Lua scripts (20 files)
 ├── cpp_patch/            Unified diff for the C++ AzerothCore module
 ├── sql/
 │   ├── schema/           full_schema.sql — all 20 ap_* tables (acore_characters)

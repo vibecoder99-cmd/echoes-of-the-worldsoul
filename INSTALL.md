@@ -93,7 +93,7 @@ errors and make no changes if the rows already exist.
 
 ## Step 3 — Deploy the Lua Scripts
 
-Copy all 18 files from `lua_scripts/` into your server's Eluna script folder.
+Copy all 20 files from `lua_scripts/` into your server's Eluna script folder.
 The default path in an AzerothCore build is:
 
 ```
