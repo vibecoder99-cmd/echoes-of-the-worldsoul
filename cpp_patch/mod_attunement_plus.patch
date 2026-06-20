@@ -1,0 +1,1046 @@
+diff --git a/modules/mod-attunement-plus/src/mod_attunement_plus.cpp b/modules/mod-attunement-plus/src/mod_attunement_plus.cpp
+new file mode 100644
+index 0000000..02be140
+--- /dev/null
++++ b/modules/mod-attunement-plus/src/mod_attunement_plus.cpp
+@@ -0,0 +1,1027 @@
++/*
++ * Copyright (C) 2025-2026 vibecoder99
++ * Licensed under the GNU General Public License v3.0 or later.
++ * See LICENSE for the full text.
++ *
++ * mod-attunement-plus
++ * Echoes of the Worldsoul stat application module for AzerothCore
++ *
++ * Applies absorbed stats from attuned items to players via the
++ * proper stat pipeline (ApplyStatBuffMod), so all secondary stats
++ * (attack power, spell power, health from stamina, etc.) update correctly.
++ *
++ * How it works:
++ *   1. On player login and stat update events, reads ap_item_snapshot
++ *      for this player's account, filtered by armor class.
++ *   2. Calculates absorbed stats using mastery rank, level scalar,
++ *      and talent bonuses stored in ap_mastery and ap_talents.
++ *   3. Applies the delta via ApplyStatBuffMod.
++ *   4. A WorldScript re-applies stats every 10 seconds to pick up
++ *      mid-session attunement changes without requiring a relog.
++ *
++ * License: GNU AGPL v3
++ */
++
++#include "ScriptMgr.h"
++#include "Player.h"
++#include "DatabaseEnv.h"
++#include "Log.h"
++#include "ObjectMgr.h"
++#include "ObjectAccessor.h"
++#include "WorldSessionMgr.h"
++#include "Timer.h"
++#include "Chat.h"
++#include "UnitScript.h"
++#include "SpellAuras.h"
++#include "SpellAuraEffects.h"
++
++// ---------------------------------------------------------------------------
++// Constants
++// ---------------------------------------------------------------------------
++
++static constexpr uint32 AP_THREAT_REDUCTION_SPELL_ID = 900001;
++
++// Stat indices matching our Lua system
++// 0=STR, 1=AGI, 2=STA, 3=INT, 4=SPI
++static const Stats AP_STATS[5] = {
++    STAT_STRENGTH,
++    STAT_AGILITY,
++    STAT_STAMINA,
++    STAT_INTELLECT,
++    STAT_SPIRIT
++};
++
++// Adjacent-tier armor range each class can wear.
++// Allows attuning one tier below and up to the class max.
++// WoW class IDs: 1=Warrior, 2=Paladin, 3=Hunter, 4=Rogue, 5=Priest,
++//                6=DK, 7=Shaman, 8=Mage, 9=Warlock, 11=Druid
++// Subclass values: 1=cloth, 2=leather, 3=mail, 4=plate
++struct ArmorRange { int min; int max; };
++static const ArmorRange CLASS_ARMOR_RANGE[12] = {
++    {0, 0},  // 0 = unused
++    {3, 4},  // 1 = Warrior:      mail + plate
++    {3, 4},  // 2 = Paladin:      mail + plate
++    {2, 3},  // 3 = Hunter:       leather + mail
++    {1, 2},  // 4 = Rogue:        cloth + leather
++    {1, 1},  // 5 = Priest:       cloth only
++    {3, 4},  // 6 = Death Knight: mail + plate
++    {2, 3},  // 7 = Shaman:       leather + mail
++    {1, 1},  // 8 = Mage:         cloth only
++    {1, 1},  // 9 = Warlock:      cloth only
++    {0, 0},  // 10 = unused
++    {1, 2},  // 11 = Druid:       cloth + leather
++};
++
++// ---------------------------------------------------------------------------
++// Helpers
++// ---------------------------------------------------------------------------
++
++// Returns the account ID for a given player GUID
++static uint32 GetAccountId(uint32 guid)
++{
++    QueryResult result = CharacterDatabase.Query(
++        "SELECT `account` FROM `characters` WHERE `guid` = {}", guid);
++    if (!result)
++    {
++        LOG_INFO("module", "[EotW] GetAccountId: no result for guid={}", guid);
++        return guid;
++    }
++    uint32 accountId = (*result)[0].Get<uint32>();
++    LOG_INFO("module", "[EotW] GetAccountId: guid={} -> accountId={}", guid, accountId);
++    return accountId;
++}
++
++// Mastery absorption percentage — mirrors AP.MasteryAbsorbPct in Lua
++// Formula: 0.05 + 0.80 * (1 - e^(-0.038 * mastery))
++static float MasteryAbsorbPct(int mastery)
++{
++    if (mastery <= 0) return 0.05f;
++    float pct = 0.05f + 0.80f * (1.0f - std::exp(-0.038f * mastery));
++    if (pct > 0.85f) pct = 0.85f;
++    return pct;
++}
++
++// Level absorption scalar — mirrors AP.LevelAbsorbScalar in Lua
++// Level 1 = 0, Level 80 = 1.0, smooth curve between
++static float LevelAbsorbScalar(uint8 level)
++{
++    if (level <= 1) return 0.0f;
++    if (level >= 80) return 1.0f;
++    return std::pow((level - 1.0f) / 79.0f, 0.5f);
++}
++
++// Aether Sink DR formula — mirrors AP.Sinks.GetEffect in Lua
++// Returns fraction in [0, ceiling]: ceiling * (1 - e^(-k * invested))
++static double ApSinkEffect(double ceiling, double k, double invested)
++{
++    return ceiling * (1.0 - std::exp(-k * invested));
++}
++
++// ---------------------------------------------------------------------------
++// Per-hit sink state: life leech + spell mitigation
++// All damage events fire on the main world thread — no mutex needed.
++// ---------------------------------------------------------------------------
++
++struct ApSinkCacheEntry {
++    double leechInvested        = 0.0;
++    double mitigInvested        = 0.0;
++    double armorPenInvested     = 0.0;
++    double executePowerInvested = 0.0;
++    double reflectInvested      = 0.0;
++    uint32 lastQueryMs          = 0;
++};
++// Combined cache: one DB query per 30 seconds covers all per-hit sink categories.
++static std::unordered_map<uint32, ApSinkCacheEntry> s_sinkCache;
++
++static ApSinkCacheEntry& GetSinkCached(uint32 accountId)
++{
++    uint32 now   = getMSTime();
++    auto&  entry = s_sinkCache[accountId];
++    if (entry.lastQueryMs != 0 && (now - entry.lastQueryMs) < 30000)
++        return entry;
++
++    QueryResult result = CharacterDatabase.Query(
++        "SELECT `category`, `invested` FROM `ap_aether_sinks` "
++        "WHERE `account_id` = {} AND `category` IN "
++        "('life_leech','spell_mitigation','armor_pen','execute_power','reflect_chance')",
++        accountId);
++
++    entry.leechInvested        = 0.0;
++    entry.mitigInvested        = 0.0;
++    entry.armorPenInvested     = 0.0;
++    entry.executePowerInvested = 0.0;
++    entry.reflectInvested      = 0.0;
++
++    if (result)
++    {
++        do
++        {
++            std::string cat = (*result)[0].Get<std::string>();
++            double inv = static_cast<double>((*result)[1].Get<uint32>());
++            if (cat == "life_leech")       entry.leechInvested        = inv;
++            if (cat == "spell_mitigation") entry.mitigInvested        = inv;
++            if (cat == "armor_pen")        entry.armorPenInvested     = inv;
++            if (cat == "execute_power")    entry.executePowerInvested = inv;
++            if (cat == "reflect_chance")   entry.reflectInvested      = inv;
++        } while (result->NextRow());
++    }
++
++    entry.lastQueryMs = now;
++    return entry;
++}
++
++// Throttle maps: player low-GUID -> last notification timestamp (ms)
++static std::unordered_map<uint32, uint32> s_leechNotifyTime;
++static std::unordered_map<uint32, uint32> s_mitigNotifyTime;
++static std::unordered_map<uint32, uint32> s_reflectNotifyTime;
++
++static void NotifyLeechThrottled(Player* player, uint32 healAmt)
++{
++    uint32 now  = getMSTime();
++    uint32 guid = player->GetGUID().GetCounter();
++    auto it = s_leechNotifyTime.find(guid);
++    if (it != s_leechNotifyTime.end() && (now - it->second) < 5000)
++        return;
++    s_leechNotifyTime[guid] = now;
++
++    std::string msg = Acore::StringFormat(
++        "|cff9966ff[Worldsoul]|r The fallen sustain you. (+{} HP)",
++        healAmt);
++    ChatHandler(player->GetSession()).SendSysMessage(msg);
++}
++
++static void NotifyMitigationThrottled(Player* player, uint32 reduction)
++{
++    uint32 now  = getMSTime();
++    uint32 guid = player->GetGUID().GetCounter();
++    auto it = s_mitigNotifyTime.find(guid);
++    if (it != s_mitigNotifyTime.end() && (now - it->second) < 5000)
++        return;
++    s_mitigNotifyTime[guid] = now;
++
++    std::string msg = Acore::StringFormat(
++        "|cff9966ff[Worldsoul]|r The Worldsoul shields your spirit. (-{} damage)",
++        reduction);
++    ChatHandler(player->GetSession()).SendSysMessage(msg);
++}
++
++// 8-second throttle: reflect is rare enough that each proc warrants a notification
++static void NotifyReflectThrottled(Player* player, uint32 reflectDmg)
++{
++    uint32 now  = getMSTime();
++    uint32 guid = player->GetGUID().GetCounter();
++    auto it = s_reflectNotifyTime.find(guid);
++    if (it != s_reflectNotifyTime.end() && (now - it->second) < 8000)
++        return;
++    s_reflectNotifyTime[guid] = now;
++
++    std::string msg = Acore::StringFormat(
++        "|cff9966ff[Worldsoul]|r Their power returns to them. ({} damage)",
++        reflectDmg);
++    ChatHandler(player->GetSession()).SendSysMessage(msg);
++}
++
++// Check if an item's armor class matches what this player class can wear
++// item_template.class: 2=Weapon, 4=Armor
++// item_template.subclass for armor: 0=misc, 1=cloth, 2=leather, 3=mail, 4=plate
++static bool ItemMatchesClass(uint8 playerClass, uint32 itemEntry)
++{
++    if (playerClass >= 12) return false;
++
++    QueryResult result = WorldDatabase.Query(
++        "SELECT `class`, `subclass` FROM `item_template` WHERE `entry` = {}", itemEntry);
++    if (!result)
++        return false;
++
++    uint8 itemClass    = (*result)[0].Get<uint8>();
++    uint8 itemSubclass = (*result)[1].Get<uint8>();
++
++    if (itemClass == 2) return true;  // Weapon — allow all
++    if (itemClass == 4)
++    {
++        if (itemSubclass == 0) return true;  // Misc/jewelry always allowed
++        ArmorRange range = CLASS_ARMOR_RANGE[playerClass];
++        return itemSubclass >= range.min && itemSubclass <= range.max;
++    }
++    return false;
++}
++
++// ---------------------------------------------------------------------------
++// Core stat calculation
++// Reads account-wide snapshots and returns total absorbed stats [7]
++// Indices: 0=STR 1=AGI 2=STA 3=INT 4=SPI 5=ARMOR 6=WEAPON_DPS
++// ---------------------------------------------------------------------------
++static void CalculateAbsorption(Player* player, float outStats[7])
++{
++    for (int i = 0; i < 7; ++i) outStats[i] = 0.0f;
++
++    uint32 guid      = player->GetGUID().GetCounter();
++    uint32 accountId = GetAccountId(guid);
++    uint8  level     = player->GetLevel();
++    uint8  cls       = player->getClass();
++
++    // Load mastery rank and aether
++    int masteryRank = 0;
++    {
++        QueryResult result = CharacterDatabase.Query(
++            "SELECT `mastery` FROM `ap_mastery` WHERE `guid` = {}", guid);
++        if (result)
++            masteryRank = (*result)[0].Get<int32>();
++    }
++
++    float absorbPct  = MasteryAbsorbPct(masteryRank);
++    float levelScale = LevelAbsorbScalar(level);
++    float effective  = absorbPct * levelScale;
++
++    LOG_INFO("module", "[EotW] mastery={} absorbPct={:.3f} level={} levelScale={:.3f} effective={:.3f}",
++        masteryRank, absorbPct, level, levelScale, effective);
++
++    if (effective <= 0.0f) return;
++
++    // Load talent bonuses
++    // stat_index 0-4, rank 1+
++    // Primary stat (highest rank): +12% per rank
++    // Secondary stats: +8% per rank
++    float talentMult[5] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
++    int   talentRanks[5] = { 0, 0, 0, 0, 0 };
++    int   maxRank = 0;
++    int   primaryStat = -1;
++
++    {
++        QueryResult result = CharacterDatabase.Query(
++            "SELECT `stat_index`, `rank` FROM `ap_talents` WHERE `guid` = {}", guid);
++        if (result)
++        {
++            do
++            {
++                int idx  = (*result)[0].Get<int32>();
++                int rank = (*result)[1].Get<int32>();
++                if (idx >= 0 && idx < 5)
++                {
++                    talentRanks[idx] = rank;
++                    if (rank > maxRank) { maxRank = rank; primaryStat = idx; }
++                }
++            } while (result->NextRow());
++        }
++    }
++
++    // Apply talent multipliers
++    for (int i = 0; i < 5; ++i)
++    {
++        if (talentRanks[i] <= 0) continue;
++        bool isPrimary = (i == primaryStat);
++        float bonus = talentRanks[i] * (isPrimary ? 0.12f : 0.08f);
++        talentMult[i] = 1.0f + bonus;
++    }
++
++    // Count distinct stats invested for diminishing returns penalty
++    int distinctStats = 0;
++    for (int i = 0; i < 5; ++i)
++        if (talentRanks[i] > 0) distinctStats++;
++    float distinctPenalty = 1.0f;
++    if (distinctStats > 1)
++        distinctPenalty = std::pow(0.85f, distinctStats - 1);
++
++    // Load account-wide snapshots (armor read live from ItemTemplate, weapon_dps from snapshot)
++    QueryResult result = CharacterDatabase.Query(
++        "SELECT `item_entry`, `str`, `agi`, `sta`, `int`, `spi`, `weapon_dps` "
++        "FROM `ap_item_snapshot` WHERE `guid` = {}", accountId);
++
++    if (!result)
++    {
++        LOG_INFO("module", "[EotW] No snapshots found for accountId={}", accountId);
++        return;
++    }
++    LOG_INFO("module", "[EotW] Snapshots found for accountId={}", accountId);
++
++    do
++    {
++        uint32 itemEntry = (*result)[0].Get<uint32>();
++        if (!ItemMatchesClass(cls, itemEntry))
++        {
++            LOG_INFO("module", "[EotW] item={} SKIPPED (class filter)", itemEntry);
++            continue;
++        }
++
++        float snap[5] = {
++            (*result)[1].Get<float>(),  // str
++            (*result)[2].Get<float>(),  // agi
++            (*result)[3].Get<float>(),  // sta
++            (*result)[4].Get<float>(),  // int
++            (*result)[5].Get<float>()   // spi
++        };
++        float snapWeaponDps = (*result)[6].Get<float>();
++
++        float absorbedStats[7] = {};
++        for (int i = 0; i < 5; ++i)
++        {
++            absorbedStats[i] = snap[i] * effective * talentMult[i] * distinctPenalty;
++            outStats[i] += absorbedStats[i];
++        }
++
++        // Read armor directly from ItemTemplate — DB column unreliable for WotLK items
++        // whose armor is calculated dynamically by _ApplyItemBonuses, not stored in armor column
++        ItemTemplate const* proto = sObjectMgr->GetItemTemplate(itemEntry);
++        if (proto)
++        {
++            float protoArmor = static_cast<float>(proto->Armor);
++            absorbedStats[5] = protoArmor * effective;
++            outStats[5] += absorbedStats[5];
++        }
++
++        // Weapon DPS from snapshot (stored by Lua migration)
++        absorbedStats[6] = snapWeaponDps * effective;
++        outStats[6] += absorbedStats[6];
++
++        LOG_INFO("module", "[EotW] item={} snap(STR={:.1f} AGI={:.1f} STA={:.1f} INT={:.1f} SPI={:.1f} WDPS={:.1f}) "
++            "-> absorbed(STR={:.2f} AGI={:.2f} STA={:.2f} INT={:.2f} SPI={:.2f} ARM={:.2f} WDPS={:.2f})",
++            itemEntry,
++            snap[0], snap[1], snap[2], snap[3], snap[4], snapWeaponDps,
++            absorbedStats[0], absorbedStats[1], absorbedStats[2], absorbedStats[3], absorbedStats[4], absorbedStats[5], absorbedStats[6]);
++    } while (result->NextRow());
++}
++
++// ---------------------------------------------------------------------------
++// Global state — shared between PlayerScript and WorldScript
++// ---------------------------------------------------------------------------
++
++// g_appliedStats indices: 0-4 = primary stats (AP_STATS), 5 = armor, 6 = weapon_dps (stored as raw DPS)
++static std::unordered_map<uint32, std::array<float, 7>> g_appliedStats;
++
++// Per-player applied Phase 2 sink values — needed for remove-before-reapply on each refresh
++struct ApSinkApplied {
++    float dodgeRating   = 0.0f;
++    float parryRating   = 0.0f;
++    float movementBonus = 0.0f;  // fraction (e.g. 0.039), not yards/sec
++    float critRating    = 0.0f;
++    float hasteRating   = 0.0f;
++};
++static std::unordered_map<uint32, ApSinkApplied> g_sinkApplied;
++
++static void ApplyAttunementStats(Player* player, bool apply)
++{
++    uint32 guid = player->GetGUID().GetCounter();
++
++    // Remove previously applied stats first
++    auto it = g_appliedStats.find(guid);
++    if (it != g_appliedStats.end())
++    {
++        for (int i = 0; i < 5; ++i)
++        {
++            if (it->second[i] > 0.0f)
++                player->ApplyStatBuffMod(AP_STATS[i], it->second[i], false);
++        }
++        if (it->second[5] > 0.0f)
++        {
++            player->HandleStatModifier(UNIT_MOD_ARMOR, TOTAL_VALUE,it->second[5], false);
++            player->UpdateArmor();
++        }
++        if (it->second[6] > 0.0f)
++        {
++            float apBonus = std::floor(it->second[6] * 7.0f);
++            player->HandleStatModifier(UNIT_MOD_ATTACK_POWER, TOTAL_VALUE, apBonus, false);
++        }
++        g_appliedStats.erase(it);
++    }
++
++    // Remove previously applied Phase 2 sink combat ratings and movement speed
++    float prevDodgeRating   = 0.0f;
++    float prevParryRating   = 0.0f;
++    float prevMovementBonus = 0.0f;
++    float prevCritRating    = 0.0f;
++    float prevHasteRating   = 0.0f;
++    {
++        auto itSink = g_sinkApplied.find(guid);
++        if (itSink != g_sinkApplied.end())
++        {
++            prevDodgeRating   = itSink->second.dodgeRating;
++            prevParryRating   = itSink->second.parryRating;
++            prevMovementBonus = itSink->second.movementBonus;
++            prevCritRating    = itSink->second.critRating;
++            prevHasteRating   = itSink->second.hasteRating;
++            if (prevDodgeRating > 0.0f)
++                player->ApplyRatingMod(CR_DODGE, static_cast<int32>(prevDodgeRating), false);
++            if (prevParryRating > 0.0f)
++                player->ApplyRatingMod(CR_PARRY, static_cast<int32>(prevParryRating), false);
++            if (prevCritRating > 0.0f)
++            {
++                player->ApplyRatingMod(CR_CRIT_MELEE,  static_cast<int32>(prevCritRating), false);
++                player->ApplyRatingMod(CR_CRIT_RANGED, static_cast<int32>(prevCritRating), false);
++                player->ApplyRatingMod(CR_CRIT_SPELL,  static_cast<int32>(prevCritRating), false);
++            }
++            if (prevHasteRating > 0.0f)
++            {
++                player->ApplyRatingMod(CR_HASTE_MELEE,  static_cast<int32>(prevHasteRating), false);
++                player->ApplyRatingMod(CR_HASTE_RANGED, static_cast<int32>(prevHasteRating), false);
++                player->ApplyRatingMod(CR_HASTE_SPELL,  static_cast<int32>(prevHasteRating), false);
++            }
++            if (prevMovementBonus > 0.0f && !player->IsMounted() && !player->IsInFlight())
++                player->SetSpeed(MOVE_RUN, 1.0f, true);
++            g_sinkApplied.erase(itSink);
++        }
++    }
++
++    if (!apply) return;
++
++    // Calculate new absorbed stats
++    float newStats[7] = { 0.0f };
++    CalculateAbsorption(player, newStats);
++
++    // Aether Sink Phase 1+2: stat bonuses applied on every refresh
++    {
++        uint32 accountId = player->GetSession()->GetAccountId();
++        QueryResult sinkResult = CharacterDatabase.Query(
++            "SELECT `category`, `invested` FROM `ap_aether_sinks` "
++            "WHERE `account_id` = {} AND `category` IN "
++            "('fortitude','melee_power','spell_power','dodge_rating','parry_rating',"
++            "'movement_speed','crit_rating','haste_rating','threat_reduction')",
++            accountId);
++
++        double fortitudeInvested  = 0.0;
++        double meleePowerInvested = 0.0;
++        double spellPowerInvested = 0.0;
++        double dodgeInvested      = 0.0;
++        double parryInvested      = 0.0;
++        double movementInvested   = 0.0;
++        double critInvested       = 0.0;
++        double hasteInvested      = 0.0;
++        double threatInvested     = 0.0;
++
++        if (sinkResult)
++        {
++            do
++            {
++                std::string cat = (*sinkResult)[0].Get<std::string>();
++                double inv = static_cast<double>((*sinkResult)[1].Get<uint32>());
++                LOG_INFO("module", "[AP Sinks] C++ read: account={} category={} invested={:.0f}",
++                    accountId, cat, inv);
++                if (cat == "fortitude")     fortitudeInvested  = inv;
++                if (cat == "melee_power")   meleePowerInvested = inv;
++                if (cat == "spell_power")   spellPowerInvested = inv;
++                if (cat == "dodge_rating")  dodgeInvested      = inv;
++                if (cat == "parry_rating")  parryInvested      = inv;
++                if (cat == "movement_speed") movementInvested  = inv;
++                if (cat == "crit_rating")      critInvested   = inv;
++                if (cat == "haste_rating")     hasteInvested  = inv;
++                if (cat == "threat_reduction") threatInvested = inv;
++            } while (sinkResult->NextRow());
++        }
++        else
++        {
++            LOG_INFO("module", "[AP Sinks] C++ read: no sink rows for account={}", accountId);
++        }
++
++        // Phase 1: stat multipliers
++        double fortitudeBonus  = ApSinkEffect(0.50, 0.000003, fortitudeInvested);
++        double meleePowerBonus = ApSinkEffect(1.00, 0.000004, meleePowerInvested);
++        double spellPowerBonus = ApSinkEffect(1.00, 0.000004, spellPowerInvested);
++
++        LOG_INFO("module", "[AP Sinks] C++ bonuses: fortitude={:.4f} meleePower={:.4f} spellPower={:.4f}",
++            fortitudeBonus, meleePowerBonus, spellPowerBonus);
++
++        if (fortitudeInvested > 0.0)
++        {
++            float staBefore = newStats[2];
++            newStats[2] *= (1.0f + static_cast<float>(fortitudeBonus));
++            LOG_INFO("module", "[AP Sinks] Fortitude: STA {:.1f} -> {:.1f} (bonus={:.4f})",
++                staBefore, newStats[2], fortitudeBonus);
++        }
++        if (meleePowerInvested > 0.0)
++        {
++            float wdpsBefore = newStats[6];
++            newStats[6] *= (1.0f + static_cast<float>(meleePowerBonus));
++            LOG_INFO("module", "[AP Sinks] MeleePower: WDPS {:.1f} -> {:.1f} (bonus={:.4f})",
++                wdpsBefore, newStats[6], meleePowerBonus);
++        }
++        if (spellPowerInvested > 0.0)
++        {
++            float intBefore = newStats[3];
++            newStats[3] *= (1.0f + static_cast<float>(spellPowerBonus));
++            LOG_INFO("module", "[AP Sinks] SpellPower: INT {:.1f} -> {:.1f} (bonus={:.4f})",
++                intBefore, newStats[3], spellPowerBonus);
++        }
++
++        // Phase 2: combat rating and movement speed
++        double dodgeBonus    = ApSinkEffect(0.15, 0.000003, dodgeInvested);
++        double parryBonus    = ApSinkEffect(0.10, 0.000003, parryInvested);
++        double movementBonus = ApSinkEffect(0.15, 0.000003, movementInvested);
++
++        double critBonus  = ApSinkEffect(0.15, 0.000003, critInvested);
++        double hasteBonus = ApSinkEffect(0.20, 0.000003, hasteInvested);
++
++        LOG_INFO("module", "[AP Sinks] Dodge: {:.4f} Parry: {:.4f} Movement: {:.4f}",
++            dodgeBonus, parryBonus, movementBonus);
++        LOG_INFO("module", "[AP Sinks] Crit: {:.4f} Haste: {:.4f}",
++            critBonus, hasteBonus);
++
++        ApSinkApplied newSinkApplied;
++
++        // Dodge rating: convert fraction -> percent -> combat rating points
++        // At level 80: ~39.35 rating per 1% dodge
++        float newDodge = static_cast<float>(dodgeBonus * 100.0 * 39.35);
++        if (newDodge > 0.0f)
++            player->ApplyRatingMod(CR_DODGE, static_cast<int32>(newDodge), true);
++        newSinkApplied.dodgeRating = newDodge;
++        LOG_INFO("module", "[AP Sinks] Dodge rating applied: removed={:.0f} added={:.0f}",
++            prevDodgeRating, newDodge);
++
++        // Parry rating
++        float newParry = static_cast<float>(parryBonus * 100.0 * 39.35);
++        if (newParry > 0.0f)
++            player->ApplyRatingMod(CR_PARRY, static_cast<int32>(newParry), true);
++        newSinkApplied.parryRating = newParry;
++        LOG_INFO("module", "[AP Sinks] Parry rating applied: removed={:.0f} added={:.0f}",
++            prevParryRating, newParry);
++
++        // Movement speed: SetSpeed takes a multiplier of base speed (1.0 = normal).
++        // No additive stacking risk, but guard against mount/flight override.
++        if (movementInvested > 0.0)
++        {
++            if (!player->IsMounted() && !player->IsInFlight())
++            {
++                float targetSpeed  = 1.0f + static_cast<float>(movementBonus);
++                float prevTarget   = 1.0f + prevMovementBonus;
++                float currentSpeed = player->GetSpeed(MOVE_RUN);
++
++                if (std::abs(currentSpeed - prevTarget) < 0.1f ||
++                    std::abs(currentSpeed - 1.0f) < 0.1f)
++                {
++                    player->SetSpeed(MOVE_RUN, targetSpeed, true);
++                    newSinkApplied.movementBonus = static_cast<float>(movementBonus);
++                    LOG_INFO("module", "[AP Sinks] Movement: multiplier set to {:.4f} (bonus={:.4f})",
++                        targetSpeed, movementBonus);
++                }
++            }
++        }
++        else if (prevMovementBonus > 0.0f)
++        {
++            if (!player->IsMounted() && !player->IsInFlight())
++                player->SetSpeed(MOVE_RUN, 1.0f, true);
++        }
++
++        // Crit rating: melee + ranged + spell simultaneously (level 80: ~45.91 rating per 1% crit)
++        float newCrit = static_cast<float>(critBonus * 100.0 * 45.91);
++        if (newCrit > 0.0f)
++        {
++            player->ApplyRatingMod(CR_CRIT_MELEE,  static_cast<int32>(newCrit), true);
++            player->ApplyRatingMod(CR_CRIT_RANGED, static_cast<int32>(newCrit), true);
++            player->ApplyRatingMod(CR_CRIT_SPELL,  static_cast<int32>(newCrit), true);
++        }
++        newSinkApplied.critRating = newCrit;
++        LOG_INFO("module", "[AP Sinks] Crit rating applied: removed={:.0f} added={:.0f}",
++            prevCritRating, newCrit);
++
++        // Haste rating: melee + ranged + spell simultaneously (level 80: ~32.79 rating per 1% haste)
++        float newHaste = static_cast<float>(hasteBonus * 100.0 * 32.79);
++        if (newHaste > 0.0f)
++        {
++            player->ApplyRatingMod(CR_HASTE_MELEE,  static_cast<int32>(newHaste), true);
++            player->ApplyRatingMod(CR_HASTE_RANGED, static_cast<int32>(newHaste), true);
++            player->ApplyRatingMod(CR_HASTE_SPELL,  static_cast<int32>(newHaste), true);
++        }
++        newSinkApplied.hasteRating = newHaste;
++        LOG_INFO("module", "[AP Sinks] Haste rating applied: removed={:.0f} added={:.0f}",
++            prevHasteRating, newHaste);
++
++        // Threat Reduction: apply/update a custom passive aura (spell 900001)
++        // that drives SPELL_AURA_MOD_THREAT across all schools via ChangeAmount.
++        {
++            Aura* threatAura = player->GetAura(AP_THREAT_REDUCTION_SPELL_ID);
++            if (threatInvested <= 0.0)
++            {
++                if (threatAura)
++                    player->RemoveAura(AP_THREAT_REDUCTION_SPELL_ID);
++            }
++            else
++            {
++                double threatFrac     = ApSinkEffect(0.30, 0.000003, threatInvested);
++                int32  threatBP       = static_cast<int32>(std::floor(-threatFrac * 100.0));
++
++                if (!threatAura)
++                {
++                    player->AddAura(AP_THREAT_REDUCTION_SPELL_ID, player);
++                    threatAura = player->GetAura(AP_THREAT_REDUCTION_SPELL_ID);
++                }
++                if (threatAura)
++                {
++                    AuraEffect* eff = threatAura->GetEffect(0);
++                    if (eff)
++                        eff->ChangeAmount(threatBP, true, true);
++                }
++                LOG_INFO("module", "[AP Sinks] ThreatReduction: invested={:.0f} frac={:.4f} basePoints={}",
++                    threatInvested, threatFrac, threatBP);
++            }
++        }
++
++        g_sinkApplied[guid] = newSinkApplied;
++    }
++
++    // Apply and cache primary stats
++    std::array<float, 7> cached = {};
++    for (int i = 0; i < 5; ++i)
++    {
++        float val = std::floor(newStats[i]);
++        if (val > 0.0f)
++        {
++            player->ApplyStatBuffMod(AP_STATS[i], val, true);
++            cached[i] = val;
++        }
++    }
++
++    // Apply armor bonus
++    float armorVal = std::floor(newStats[5]);
++    if (armorVal > 0.0f)
++    {
++        player->HandleStatModifier(UNIT_MOD_ARMOR, TOTAL_VALUE,armorVal, true);
++        player->UpdateArmor();
++        cached[5] = armorVal;
++    }
++
++    // Apply weapon DPS as flat attack power (absorbed_dps * 7 ≈ flat AP equivalent)
++    float weaponDpsVal = std::floor(newStats[6]);
++    if (weaponDpsVal > 0.0f)
++    {
++        float apBonus = std::floor(weaponDpsVal * 7.0f);
++        player->HandleStatModifier(UNIT_MOD_ATTACK_POWER, TOTAL_VALUE, apBonus, true);
++        player->UpdateAttackPowerAndDamage();
++        cached[6] = weaponDpsVal;
++    }
++
++    g_appliedStats[guid] = cached;
++
++    // Force stat recalculation so secondary stats update
++    player->UpdateAllStats();
++    player->UpdateArmor();
++
++    LOG_INFO("module", "[EotW] Stats applied for {}: STR={:.0f} AGI={:.0f} STA={:.0f} INT={:.0f} SPI={:.0f} ARMOR={:.0f} WDPS={:.0f}(AP+{:.0f})",
++        player->GetName(), newStats[0], newStats[1], newStats[2], newStats[3], newStats[4], newStats[5],
++        newStats[6], std::floor(newStats[6]) * 7.0f);
++}
++
++// ---------------------------------------------------------------------------
++// Player script — handles login/logout/level/equip events
++// ---------------------------------------------------------------------------
++
++class AttunementPlusPlayerScript : public PlayerScript
++{
++public:
++    AttunementPlusPlayerScript() : PlayerScript("AttunementPlusPlayerScript") {}
++
++    void OnPlayerLogin(Player* player) override
++    {
++        // Delay stat application so Lua's login migration (snapshot capture)
++        // completes first. Both run on the same login event; Lua may run after us.
++        uint32 guid = player->GetGUID().GetCounter();
++        player->m_Events.AddEventAtOffset([guid]()
++        {
++            Player* p = ObjectAccessor::FindPlayerByLowGUID(guid);
++            if (p && p->IsInWorld())
++                ApplyAttunementStats(p, true);
++        }, Milliseconds(3000));
++    }
++
++    void OnPlayerLogout(Player* player) override
++    {
++        ApplyAttunementStats(player, false);
++    }
++
++    // Re-apply on level change (absorption scales with level)
++    void OnPlayerLevelChanged(Player* player, uint8 /*oldlevel*/) override
++    {
++        ApplyAttunementStats(player, true);
++    }
++
++    // Re-apply when gear is equipped (snapshot may have changed)
++    void OnPlayerEquip(Player* player, Item* /*it*/, uint8 /*bag*/, uint8 /*slot*/, bool /*update*/) override
++    {
++        ApplyAttunementStats(player, true);
++    }
++
++};
++
++// ---------------------------------------------------------------------------
++// Equipped-item armor patcher
++// For attuned items whose snapshot has armor=0, compute the real armor using
++// the same logic as Player::_ApplyItemBonuses:
++//   1. If the item has ScalingStatValue, look up armor from ScalingStatValuesStore
++//      at the player's current level (WotLK dynamic items).
++//   2. Otherwise use proto->Armor adjusted by ArmorDamageModifier.
++// Runs in the 10-second WorldScript tick so it self-heals on first login.
++// ---------------------------------------------------------------------------
++static const uint8 AP_EQUIP_SLOTS[] = {
++    EQUIPMENT_SLOT_HEAD,    EQUIPMENT_SLOT_NECK,       EQUIPMENT_SLOT_SHOULDERS,
++    EQUIPMENT_SLOT_CHEST,   EQUIPMENT_SLOT_WAIST,      EQUIPMENT_SLOT_LEGS,
++    EQUIPMENT_SLOT_FEET,    EQUIPMENT_SLOT_WRISTS,     EQUIPMENT_SLOT_HANDS,
++    EQUIPMENT_SLOT_FINGER1, EQUIPMENT_SLOT_FINGER2,    EQUIPMENT_SLOT_TRINKET1,
++    EQUIPMENT_SLOT_TRINKET2,EQUIPMENT_SLOT_BACK,       EQUIPMENT_SLOT_MAINHAND,
++    EQUIPMENT_SLOT_OFFHAND, EQUIPMENT_SLOT_RANGED,
++};
++
++static void PatchEquippedItemArmor(Player* player)
++{
++    uint32 guid      = player->GetGUID().GetCounter();
++    uint32 accountId = GetAccountId(guid);
++    uint8  level     = player->GetLevel();
++
++    for (uint8 slot : AP_EQUIP_SLOTS)
++    {
++        Item* item = player->GetItemByPos(INVENTORY_SLOT_BAG_0, slot);
++        if (!item) continue;
++
++        uint32 itemEntry = item->GetEntry();
++
++        // Must be attuned by this character
++        QueryResult attunedRes = CharacterDatabase.Query(
++            "SELECT 1 FROM `ap_item_attune` WHERE `guid` = {} AND `item_entry` = {} AND `attuned` = 1",
++            guid, itemEntry);
++        if (!attunedRes) continue;
++
++        // Only patch if the snapshot armor is still 0
++        QueryResult snapRes = CharacterDatabase.Query(
++            "SELECT `armor` FROM `ap_item_snapshot` WHERE `guid` = {} AND `item_entry` = {}",
++            accountId, itemEntry);
++        if (!snapRes) continue;
++        if ((*snapRes)[0].Get<float>() > 0.0f) continue;
++
++        ItemTemplate const* proto = item->GetTemplate();
++        if (!proto) continue;
++
++        // Replicate _ApplyItemBonuses armor calculation
++        uint32 armor = proto->Armor;
++        ScalingStatValuesEntry const* ssv =
++            proto->ScalingStatValue ? sScalingStatValuesStore.LookupEntry(level) : nullptr;
++        if (ssv)
++        {
++            if (uint32 ssvArmor = ssv->getArmorMod(proto->ScalingStatValue))
++                if (proto->ScalingStatValue > 0 || ssvArmor < proto->Armor)
++                    armor = ssvArmor;
++        }
++        else if (armor && proto->ArmorDamageModifier)
++        {
++            armor -= uint32(proto->ArmorDamageModifier);
++        }
++
++        // ArmorDamageModifier > 0 is added separately as TOTAL_VALUE bonus
++        float totalArmor = static_cast<float>(armor);
++        if (proto->ArmorDamageModifier > 0.0f)
++            totalArmor += proto->ArmorDamageModifier;
++
++        if (totalArmor <= 0.0f) continue;
++
++        CharacterDatabase.Execute(
++            "UPDATE `ap_item_snapshot` SET `armor` = {} WHERE `guid` = {} AND `item_entry` = {}",
++            totalArmor, accountId, itemEntry);
++
++        LOG_INFO("module", "[EotW] Patched armor for entry={} player={}: armor={:.0f} (ssv={})",
++            itemEntry, player->GetName(), totalArmor, ssv ? 1 : 0);
++    }
++}
++
++// ---------------------------------------------------------------------------
++// World script — periodic stat refresh every 10 seconds
++// Picks up mid-session attunements without requiring a relog.
++// ---------------------------------------------------------------------------
++
++class AttunementPlusWorldScript : public WorldScript
++{
++public:
++    AttunementPlusWorldScript() : WorldScript("AttunementPlusWorldScript") {}
++
++    void OnUpdate(uint32 /*diff*/) override
++    {
++        uint32 now = getMSTime();
++        if (now - _lastUpdate < 10000) return;
++        _lastUpdate = now;
++
++        WorldSessionMgr::SessionMap const& sessions = sWorldSessionMgr->GetAllSessions();
++        for (auto const& [accountId, session] : sessions)
++        {
++            if (!session) continue;
++            Player* player = session->GetPlayer();
++            if (!player || !player->IsInWorld()) continue;
++
++            // Patch any equipped+attuned items whose snapshot armor is still 0
++            PatchEquippedItemArmor(player);
++
++            float newStats[7] = { 0.0f };
++            CalculateAbsorption(player, newStats);
++
++            uint32 guid = player->GetGUID().GetCounter();
++            auto it = g_appliedStats.find(guid);
++
++            bool changed = (it == g_appliedStats.end());
++            if (!changed)
++            {
++                for (int i = 0; i < 7; ++i)
++                {
++                    if (std::abs(std::floor(newStats[i]) - it->second[i]) > 0.5f)
++                    {
++                        changed = true;
++                        break;
++                    }
++                }
++            }
++
++            if (changed)
++            {
++                ApplyAttunementStats(player, true);
++                LOG_INFO("module", "[EotW] Periodic refresh for {}: STR={:.0f} AGI={:.0f} STA={:.0f} INT={:.0f} SPI={:.0f} ARMOR={:.0f} WDPS={:.0f}",
++                    player->GetName(), newStats[0], newStats[1], newStats[2], newStats[3], newStats[4], newStats[5], newStats[6]);
++            }
++        }
++    }
++
++private:
++    uint32 _lastUpdate = 0;
++};
++
++// ---------------------------------------------------------------------------
++// Unit script — per-hit life leech
++// ---------------------------------------------------------------------------
++
++class AttunementPlusUnitScript : public UnitScript
++{
++public:
++    AttunementPlusUnitScript() : UnitScript("AttunementPlusUnitScript") {}
++
++    // Fires for every damage event in the world; filter to player-on-creature only
++    void OnDamage(Unit* attacker, Unit* victim, uint32& damage) override
++    {
++        if (!attacker || !victim || damage == 0)
++            return;
++        if (!attacker->IsPlayer() || !victim->IsCreature())
++            return;
++
++        Player* player = attacker->ToPlayer();
++        // Gray check: creature more than 10 levels below player
++        if (victim->GetLevel() + 10 < player->GetLevel())
++            return;
++
++        uint32 accountId = player->GetSession()->GetAccountId();
++        auto&  cache     = GetSinkCached(accountId);
++
++        // Life Leech: restore HP proportional to damage dealt
++        if (cache.leechInvested > 0.0)
++        {
++            double leechFrac = ApSinkEffect(0.08, 0.000005, cache.leechInvested);
++            if (leechFrac > 0.0)
++            {
++                uint32 healAmount = static_cast<uint32>(std::max(1.0, std::floor(damage * leechFrac)));
++                uint32 curHP      = player->GetHealth();
++                uint32 maxHP      = player->GetMaxHealth();
++                if (curHP < maxHP)
++                {
++                    uint32 actualHeal = std::min(healAmount, maxHP - curHP);
++                    if (actualHeal > 0)
++                    {
++                        player->SetHealth(curHP + actualHeal);
++                        NotifyLeechThrottled(player, actualHeal);
++                    }
++                }
++            }
++        }
++
++        // Execute Power: bonus damage when target is below 20% HP
++        // Intentionally runs after leech so leech reads base damage; execute then amplifies
++        if (cache.executePowerInvested > 0.0 && victim->GetHealthPct() < 20.0f)
++        {
++            double exBonus = ApSinkEffect(0.40, 0.000003, cache.executePowerInvested);
++            if (exBonus > 0.0)
++            {
++                uint32 extraDmg = static_cast<uint32>(std::floor(damage * exBonus));
++                damage += extraDmg;
++            }
++        }
++
++        // Armor Penetration: compensate for armor already applied by inflating post-mitigation damage.
++        // Derives how much armor reduced the hit, then partially reverses that reduction.
++        // armorConstant = 467.5 * 80 - 22167.5 = 15232.5, valid for level-80 attackers only.
++        if (cache.armorPenInvested > 0.0 && damage > 0)
++        {
++            double armorPenFrac = ApSinkEffect(0.30, 0.000003, cache.armorPenInvested);
++            if (armorPenFrac > 0.0)
++            {
++                float targetArmor = static_cast<float>(victim->GetArmor());
++                if (targetArmor > 0.0f)
++                {
++                    float reductionFrac  = targetArmor / (targetArmor + 15232.5f);
++                    float penOfReduction = static_cast<float>(armorPenFrac) * reductionFrac;
++                    if (penOfReduction < 1.0f)
++                    {
++                        float dmgMult = 1.0f / (1.0f - penOfReduction);
++                        uint32 newDamage = static_cast<uint32>(std::floor(damage * dmgMult));
++                        if (newDamage > damage)
++                            damage = newDamage;
++                    }
++                }
++            }
++        }
++    }
++
++    // Fires for every spell damage event; filter to player targets only
++    void ModifySpellDamageTaken(Unit* target, Unit* attacker, int32& damage, SpellInfo const* spellInfo) override
++    {
++        if (!target || !target->IsPlayer() || damage <= 0)
++            return;
++        // nullptr spellInfo = physical auto-attack; skip all non-spell damage
++        if (!spellInfo)
++            return;
++        // Skip physical school (SPELL_SCHOOL_MASK_NORMAL = 1)
++        if (spellInfo->GetSchoolMask() == SPELL_SCHOOL_MASK_NORMAL)
++            return;
++
++        Player* player   = target->ToPlayer();
++        uint32 accountId = player->GetSession()->GetAccountId();
++        auto& cache = GetSinkCached(accountId);
++
++        // Spell Mitigation
++        double mitigInvested = cache.mitigInvested;
++        if (mitigInvested > 0.0)
++        {
++            double mitigFrac = ApSinkEffect(0.25, 0.000004, mitigInvested);
++            if (mitigFrac > 0.0)
++            {
++                uint32 reduction = static_cast<uint32>(std::floor(static_cast<double>(damage) * mitigFrac));
++                // Never reduce to zero from mitigation alone
++                if (reduction >= static_cast<uint32>(damage))
++                    reduction = static_cast<uint32>(damage) - 1;
++                damage -= static_cast<int32>(reduction);
++                NotifyMitigationThrottled(player, reduction);
++            }
++        }
++
++        // Reflect Chance: small chance to reflect spell damage back to the attacker
++        double refInvested = cache.reflectInvested;
++        if (refInvested > 0.0 && damage > 0 && attacker && attacker != target)
++        {
++            double reflectFrac = ApSinkEffect(0.05, 0.000002, refInvested);
++            if (reflectFrac > 0.0)
++            {
++                uint32 roll      = urand(0, 9999);
++                uint32 threshold = static_cast<uint32>(reflectFrac * 10000.0);
++
++                if (roll < threshold)
++                {
++                    uint32 reflectDamage = static_cast<uint32>(damage);
++                    damage = 0;
++
++                    Unit::DealDamage(attacker, attacker, reflectDamage, nullptr,
++                        DIRECT_DAMAGE, SPELL_SCHOOL_MASK_NORMAL, nullptr, false);
++
++                    NotifyReflectThrottled(player, reflectDamage);
++                }
++            }
++        }
++    }
++};
++
++// ---------------------------------------------------------------------------
++// Module registration
++// ---------------------------------------------------------------------------
++
++void AddSC_mod_attunement_plus()
++{
++    new AttunementPlusPlayerScript();
++    new AttunementPlusWorldScript();
++    new AttunementPlusUnitScript();
++}
+
+diff --git a/modules/mod-attunement-plus/src/mod_attunement_plus_loader.cpp b/modules/mod-attunement-plus/src/mod_attunement_plus_loader.cpp
+new file mode 100644
+index 0000000..d1f12e8
+--- /dev/null
++++ b/modules/mod-attunement-plus/src/mod_attunement_plus_loader.cpp
+@@ -0,0 +1,6 @@
++void AddSC_mod_attunement_plus();
++
++void Addmod_attunement_plusScripts()
++{
++    AddSC_mod_attunement_plus();
++}

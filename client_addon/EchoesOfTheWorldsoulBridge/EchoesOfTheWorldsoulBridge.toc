@@ -1,0 +1,8 @@
+## Interface: 30300
+## Title: Echoes of the Worldsoul Bridge
+## Notes: Tooltip bridge for the Echoes of the Worldsoul progression system.
+## Author: vibecoder99
+## Version: 1.0.0
+## SavedVariables: AttunementPlusBridgeDB
+
+EchoesOfTheWorldsoulBridge.lua

@@ -1,0 +1,50 @@
+# Binaries / compiled output
+*.exe
+*.dll
+*.so
+*.dylib
+*.pdb
+*.obj
+*.lib
+*.a
+
+# WoW client/server proprietary or generated assets
+*.mpq
+*.MPQ
+*.dbc
+*.DBC
+maps/
+vmaps/
+mmaps/
+dbc/
+Cameras/
+/Data/
+
+# Database dumps / credentials / local configs
+*.sql.gz
+*.dump
+*.bak
+*.backup
+*.env
+*.conf
+*.ini
+*.log
+*.csv
+auth_database*
+characters_database*
+world_database*
+realmlist.wtf
+
+# Dev-only artifacts
+tools/
+logs/
+HANDOFF.md
+auralab_dump.txt
+*.tmp
+*.old
+
+# OS/editor junk
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

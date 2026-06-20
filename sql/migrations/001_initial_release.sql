@@ -1,0 +1,22 @@
+-- ============================================================
+-- Echoes of the Worldsoul — Migration 001
+-- Version : 1.0.0 (initial release)
+-- Applies : acore_characters
+-- ============================================================
+-- This migration represents the 1.0.0 baseline schema.
+--
+-- DO NOT run this file directly. For the 1.0.0 schema, run:
+--
+--   mysql -u [user] -p acore_characters < sql/schema/full_schema.sql
+--
+-- That file is the complete, commented, ordered version of every
+-- ap_* table as of 1.0.0. This migration file exists solely as a
+-- numbered baseline marker so future migrations (002, 003, ...) have
+-- a clear starting point and the migrations/ folder tells the full
+-- schema history in order.
+--
+-- For an existing install already running the 1.0.0 schema:
+-- no action needed. full_schema.sql uses CREATE TABLE IF NOT EXISTS
+-- throughout, so running it again on an existing database is safe
+-- and produces no changes.
+-- ============================================================
