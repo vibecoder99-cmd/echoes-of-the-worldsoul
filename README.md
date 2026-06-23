@@ -7,6 +7,18 @@ deepen the longer you stay.
 
 ---
 
+## Feedback / Compatibility Reports
+
+Echoes of the Worldsoul is currently in release-candidate testing.
+
+If you test `v1.6.0-rc1`, compatibility reports and balance feedback are welcome
+through [GitHub Issues](https://github.com/vibecoder99-cmd/echoes-of-the-worldsoul/issues/new/choose).
+Please include your AzerothCore revision, Eluna version, operating system, SQL
+import result, Lua load result, C++ rebuild result, and client-pack status when
+reporting issues.
+
+---
+
 ## What It Does
 
 **Item Attunement** tracks per-item progress through combat kills. Once an item

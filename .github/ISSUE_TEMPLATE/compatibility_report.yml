@@ -1,0 +1,105 @@
+name: Compatibility Report
+description: Report install results, compatibility issues, or environment-specific problems for Echoes of the Worldsoul.
+title: "[Compatibility]: "
+labels: ["compatibility", "v1.6.0-rc1"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing Echoes of the Worldsoul.
+
+        Please include as much detail as possible. This helps identify AzerothCore, Eluna, SQL, C++, and client-pack compatibility issues.
+
+  - type: input
+    id: echoes-version
+    attributes:
+      label: Echoes version
+      description: Example: v1.6.0-rc1
+      placeholder: v1.6.0-rc1
+    validations:
+      required: true
+
+  - type: input
+    id: acore-revision
+    attributes:
+      label: AzerothCore revision
+      description: Commit hash or approximate date/build.
+    validations:
+      required: false
+
+  - type: input
+    id: eluna-version
+    attributes:
+      label: Eluna version/module
+      description: Describe the Eluna module/version you are using.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - Linux
+        - macOS
+        - Other
+    validations:
+      required: false
+
+  - type: dropdown
+    id: database-state
+    attributes:
+      label: Database state
+      options:
+        - Fresh AzerothCore DB
+        - Existing/customized DB
+        - Unsure
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: install-checks
+    attributes:
+      label: Install checks
+      options:
+        - label: SQL imported cleanly
+        - label: Lua scripts loaded cleanly
+        - label: C++ module rebuilt cleanly
+        - label: worldserver started cleanly
+        - label: Client is WoW 3.3.5a build 12340
+        - label: Client pack installed
+        - label: Addon enabled
+
+  - type: textarea
+    id: issue
+    attributes:
+      label: Issue encountered
+      description: What happened? What did you expect instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or screenshots
+      description: Paste worldserver errors, Lua errors, SQL errors, client screenshots, or addon errors here.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: List the exact steps someone else can follow.
+    validations:
+      required: false
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional notes
+      description: Anything else useful.
+    validations:
+      required: false

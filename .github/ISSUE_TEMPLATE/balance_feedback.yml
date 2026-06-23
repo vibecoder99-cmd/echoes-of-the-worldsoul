@@ -1,0 +1,86 @@
+name: Balance / Design Feedback
+description: Share progression pacing, World Threat, Rack, Forge, Crucible, or Visage feedback.
+title: "[Feedback]: "
+labels: ["feedback", "balance", "v1.6.0-rc1"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing Echoes of the Worldsoul.
+
+        This template is for progression pacing, feature clarity, and balance/design feedback.
+
+  - type: input
+    id: echoes-version
+    attributes:
+      label: Echoes version
+      placeholder: v1.6.0-rc1
+    validations:
+      required: true
+
+  - type: input
+    id: content-tested
+    attributes:
+      label: What content did you test?
+      placeholder: "Example: leveling zones, dungeons, heroic dungeons, raids, solo testing"
+    validations:
+      required: false
+
+  - type: input
+    id: character
+    attributes:
+      label: Character level/class/spec
+      placeholder: "Example: Level 80 Paladin, Protection"
+    validations:
+      required: false
+
+  - type: input
+    id: threat-level
+    attributes:
+      label: World Threat level tested
+      placeholder: "Example: 0, 3, 7, 10"
+    validations:
+      required: false
+
+  - type: input
+    id: time-tested
+    attributes:
+      label: How long did you test?
+      placeholder: "Example: 2 hours"
+    validations:
+      required: false
+
+  - type: textarea
+    id: felt-good
+    attributes:
+      label: What felt good?
+    validations:
+      required: false
+
+  - type: textarea
+    id: too-slow
+    attributes:
+      label: What felt too slow?
+    validations:
+      required: false
+
+  - type: textarea
+    id: too-fast
+    attributes:
+      label: What felt too fast or too strong?
+    validations:
+      required: false
+
+  - type: textarea
+    id: confusing
+    attributes:
+      label: What felt confusing?
+    validations:
+      required: false
+
+  - type: textarea
+    id: suggested-adjustment
+    attributes:
+      label: Suggested adjustment
+    validations:
+      required: false
