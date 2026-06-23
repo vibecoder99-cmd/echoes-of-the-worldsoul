@@ -14,7 +14,7 @@ body:
     id: echoes-version
     attributes:
       label: Echoes version
-      description: Example: v1.6.0-rc1
+      description: "Example: v1.6.0-rc1"
       placeholder: v1.6.0-rc1
     validations:
       required: true
