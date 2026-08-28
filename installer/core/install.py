@@ -29,7 +29,7 @@ import datetime
 import os
 import shutil
 
-from . import backup, config, discovery, hashing, legacy_migration, manifest as manifest_mod
+from . import backup, config, discovery, hashing, legacy_migration, legacy_retirement, manifest as manifest_mod
 from . import mpq_build, mpq_conflict, prereq, sql_runner
 
 
@@ -135,6 +135,19 @@ def install(opts):
         "files": hashing.sha256_tree(lua_dst),
         "installed_at": timestamp,
     }
+
+    # Retire historical Echoes-owned Lua files that a real prior public
+    # release may have installed (e.g. ap_gm_aether.lua from v1.6.0-rc1)
+    # but current source no longer ships. Positive-identity-gated -- see
+    # legacy_retirement.py. Runs on every install/upgrade call, not just
+    # a dedicated "upgrade" path, since a fresh install target is never
+    # going to match these signatures anyway.
+    retired_lua, unproven_lua = legacy_retirement.retire_legacy_lua(
+        lua_dst, backups_root, timestamp, m
+    )
+    m["legacy_retirement"] = m.get("legacy_retirement", {})
+    m["legacy_retirement"]["lua"] = {"retired": retired_lua, "left_unproven": unproven_lua}
+    m["components"]["core_lua"]["files"] = hashing.sha256_tree(lua_dst)
     checkpoint()
 
     # --- CORE: mod-echoes-stats ---
@@ -229,6 +242,20 @@ def install(opts):
             "enabled": False,
             "reason": "Playerbots integration not requested for this install",
         }
+
+    # Retire historical Echoes-owned module directories (e.g. the
+    # v1.6.0-rc1-era modules/mod-attunement-plus/) -- positive-identity
+    # gated, and only after this same operation confirms every declared
+    # replacement module is installed. See legacy_retirement.py.
+    modules_root = os.path.join(opts.azerothcore_root, "modules")
+    retired_modules, unresolved_modules = legacy_retirement.retire_legacy_modules(
+        modules_root, backups_root, timestamp, m,
+        currently_installed_components=list(m["components"].keys()),
+    )
+    m["legacy_retirement"]["modules"] = {
+        "retired": retired_modules,
+        "left_unresolved": [{"name": n, "reason": r} for n, r in unresolved_modules],
+    }
     checkpoint()
 
     # --- CORE: SQL ---
