@@ -2,7 +2,34 @@
 ## Title: Echoes of the Worldsoul Bridge
 ## Notes: Tooltip bridge for the Echoes of the Worldsoul progression system.
 ## Author: vibecoder99
-## Version: 1.0.0
+## Version: 1.5.9
 ## SavedVariables: AttunementPlusBridgeDB
 
 EchoesOfTheWorldsoulBridge.lua
+EchoesUI\Bootstrap.lua
+EchoesUI\Theme.lua
+EchoesUI\StateStore.lua
+EchoesUI\AnimationController.lua
+EchoesUI\ScreenManager.lua
+EchoesUI\InputManager.lua
+EchoesUI\Layout.lua
+EchoesUI\Components\IconButton.lua
+EchoesUI\Components\Landmark.lua
+EchoesUI\Components\CoreWidget.lua
+EchoesUI\Components\ResourceDisplay.lua
+EchoesUI\Components\ProgressionZone.lua
+EchoesUI\Components\ProgressionRow.lua
+EchoesUI\Components\UtilityShell.lua
+C43Dashboard.lua
+EchoesUI\DashboardGateB.lua
+EchoesUI\Screens\ProgressionScreen.lua
+EchoesUI\Screens\WorldThreatScreen.lua
+EchoesUI\Screens\CrucibleScreen.lua
+EchoesUI\Screens\TalentsScreen.lua
+EchoesUI\Screens\RackScreen.lua
+EchoesUI\Screens\ForgeScreen.lua
+EchoesUI\Screens\VisageScreen.lua
+EchoesUI\Screens\SettingsScreen.lua
+EchoesUI\Screens\AccessibilityScreen.lua
+EchoesUI\Screens\CodexScreen.lua
+EchoesUI\Screens\SearchScreen.lua

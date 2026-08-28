@@ -1,0 +1,146 @@
+local UI=EchoesUI
+if not UI or not UI.ProgressionRow or not UI.ScreenManager then return end
+local Theme,Animation=UI.Theme,UI.AnimationController
+local Screen={id="visage",active=false,previewActive=false,previewPending=false,draft=nil,themes={},secondaryThemes={},tiers={primary={},secondary={}}}
+local ASSET="Interface\\AddOns\\EchoesOfTheWorldsoulBridge\\Assets\\"
+local SIGILS={worldsoul="VisageSigilWorldsoul",ethereal="VisageSigilEthereal",verdant="VisageSigilVerdant",void="VisageSigilVoid",infernal="VisageSigilInfernal"}
+local THEMES={
+    {"worldsoul","WORLDSOUL",{.25,.72,1,1}},
+    {"ethereal","ETHEREAL",{.58,.45,1,1}},
+    {"verdant","VERDANT",{.36,.78,.46,1}},
+    {"void","VOID",{.50,.28,.76,1}},
+    {"infernal","INFERNAL",{.92,.34,.12,1}},
+}
+local TIERS={{0,"AUTO"},{1,"SUBTLE"},{2,"LOW"},{3,"MEDIUM"},{4,"STRONG"},{5,"DRAMATIC"}}
+local function Solid(p,l,c) local t=p:CreateTexture(nil,l); Theme:SetTextureColor(t,c); return t end
+local function Art(parent,layer,name,uMax,vMax) local t=parent:CreateTexture(nil,layer); t:SetTexture(ASSET..name); t:SetTexCoord(0,uMax,0,vMax); return t end
+local function Label(p,text,font,size,color,point,rel,relPoint,x,y,width,justify) local f=p:CreateFontString(nil,"OVERLAY"); f:SetFont(font,size,font==Theme.fonts.monument and "OUTLINE" or nil); f:SetText(text); f:SetTextColor(unpack(color)); f:SetPoint(point,rel,relPoint,x,y); if width then f:SetWidth(width); f:SetJustifyH(justify or "LEFT") end; return f end
+local function Set(value) local s={}; for token in tostring(value or ""):gmatch("[^,]+") do s[token]=true end; return s end
+local function FormatInt(v) local s=tostring(math.floor(tonumber(v) or 0)); while true do local n; s,n=s:gsub("^(-?%d+)(%d%d%d)","%1,%2"); if n==0 then break end end; return s end
+local frame=CreateFrame("Frame","EchoesUIVisageScreen",UIParent); frame:SetSize(1672,941); frame:SetPoint("CENTER"); frame:SetFrameStrata("DIALOG"); frame:EnableMouse(true); frame:Hide(); Screen.frame=frame
+-- Gate 1 (Visage): VisageResonanceFieldTile replaces the shared C43_* Dashboard-tile
+-- wash at the identical 4x2 grid/crop geometry. The manifest's uMax=vMax=1 describes
+-- the tile's uncropped 512x512 master; native per-cell edge-crop math (col3=136w,
+-- row1=429h) is preserved so the art still terminates exactly at the audited
+-- 1672x941 canvas edge instead of overflowing it -- no geometry law violated.
+for r=0,1 do for c=0,3 do local t=frame:CreateTexture(nil,"BACKGROUND"); t:SetTexture("Interface\\AddOns\\EchoesOfTheWorldsoulBridge\\Assets\\C43_"..c..r); local w=c==3 and 136 or 512; local h=r==1 and 429 or 512; t:SetSize(w,h); t:SetPoint("TOPLEFT",frame,"TOPLEFT",c*512,-r*512); t:SetTexCoord(0,w/512,0,h/512); t:SetVertexColor(.24,.27,.40,.24); t:Hide() end end
+for r=0,1 do for c=0,3 do local w=c==3 and 136 or 512; local h=r==1 and 429 or 512; local tile=Art(frame,"BACKGROUND","VisageResonanceFieldTile",w/512,h/512); tile:SetSize(w,h); tile:SetPoint("TOPLEFT",frame,"TOPLEFT",c*512,-r*512); tile:SetAlpha(1) end end
+-- CONFLICT RESOLVED, not silently improvised: the primitive-to-asset map pairs this
+-- tile with `veil` as jointly "neutralized," but Assets/Previews/VisageResonanceFieldTile.png
+-- shows a sparse, near-white sigil-line field with no dark backing of its own -- removing
+-- `veil` would blow the screen out to white. `veil` is kept exactly as native (not new
+-- decoration; the same load-bearing readability layer every other fabricated screen keeps).
+local veil=Solid(frame,"BACKGROUND",{.006,.007,.014,.80}); veil:SetAllPoints(frame)
+local crown=Solid(frame,"ARTWORK",Theme.colors.stone); crown:SetSize(620,68); crown:SetPoint("TOP",frame,"TOP",0,-18); crown:Hide()
+local crownArt=Art(frame,"ARTWORK","VisageCrown",0.60546875,0.53125); crownArt:SetSize(620,68); crownArt:SetPoint("TOP",frame,"TOP",0,-18); crownArt:SetAlpha(1)
+local seam=Solid(frame,"OVERLAY",{.58,.45,1,1}); seam:SetSize(430,2); seam:SetPoint("TOP",crown,"BOTTOM",0,0); seam:SetAlpha(.58)
+Label(frame,"WORLDSOUL VISAGE",Theme.fonts.monument,28,Theme.colors.text,"CENTER",crown,"CENTER",0,7); Label(frame,"TWO COSMETIC LAYERS  ·  ONE SAVED MANIFESTATION",Theme.fonts.readable,10,Theme.colors.textMuted,"CENTER",crown,"CENTER",0,-18)
+local function Place(c,x,y) c.root:SetPoint("TOPLEFT",frame,"TOPLEFT",x,-y); return c end
+Screen.back=Place(UI.ProgressionRow:Create(frame,{id="back",width=130,height=38,icon=false,compact=true,label="‹  BACK",onActivate=function() Screen:Leave("back") end}),28,24); Screen.home=Place(UI.ProgressionRow:Create(frame,{id="home",width=130,height=38,icon=false,compact=true,label="CORE / HOME",onActivate=function() Screen:Leave("home") end}),1368,24); Screen.close=Place(UI.ProgressionRow:Create(frame,{id="close",width=130,height=38,icon=false,compact=true,label="CLOSE  ×",onActivate=function() Screen:CloseCompanion() end}),1514,24)
+
+-- Gate 1 (Visage): VisagePrimaryInnerAssembly/SecondaryOuterAssembly replace the bare
+-- pm/sm spine blocks. Parented directly to `frame` (per manifest) at the identical
+-- bounds as the primary/secondary column frames themselves -- child-frame level
+-- ordering renders them behind `primary`/`secondary`'s own row controls automatically,
+-- same mechanism already used by every other fabricated screen this engagement.
+local primary=CreateFrame("Frame",nil,frame); primary:SetSize(440,710); primary:SetPoint("TOPLEFT",frame,"TOPLEFT",64,-126)
+local pm=Solid(primary,"ARTWORK",Theme.colors.stoneLift); pm:SetSize(22,680); pm:SetPoint("LEFT",primary,"LEFT",0,0); pm:Hide()
+local primaryAssembly=Art(frame,"ARTWORK","VisagePrimaryInnerAssembly",0.859375,0.69335938); primaryAssembly:SetSize(440,710); primaryAssembly:SetPoint("TOPLEFT",frame,"TOPLEFT",64,-126); primaryAssembly:SetAlpha(1)
+Label(primary,"PRIMARY  ·  INNER",Theme.fonts.monument,18,Theme.colors.text,"TOPLEFT",primary,"TOPLEFT",38,-18); Screen.primaryGate=Label(primary,"ATTUNEMENT —",Theme.fonts.readable,9,Theme.colors.textMuted,"TOPLEFT",primary,"TOPLEFT",38,-49,360)
+local secondary=CreateFrame("Frame",nil,frame); secondary:SetSize(440,710); secondary:SetPoint("TOPRIGHT",frame,"TOPRIGHT",-64,-126)
+local sm=Solid(secondary,"ARTWORK",Theme.colors.stoneLift); sm:SetSize(22,680); sm:SetPoint("RIGHT",secondary,"RIGHT",0,0); sm:Hide()
+local secondaryAssembly=Art(frame,"ARTWORK","VisageSecondaryOuterAssembly",0.859375,0.69335938); secondaryAssembly:SetSize(440,710); secondaryAssembly:SetPoint("TOPRIGHT",frame,"TOPRIGHT",-64,-126); secondaryAssembly:SetAlpha(1)
+Label(secondary,"SECONDARY  ·  OUTER",Theme.fonts.monument,18,Theme.colors.text,"TOPLEFT",secondary,"TOPLEFT",12,-18); Screen.secondaryGate=Label(secondary,"CRUCIBLE —",Theme.fonts.readable,9,Theme.colors.textMuted,"TOPLEFT",secondary,"TOPLEFT",12,-49,360)
+
+-- Gate 1 (Visage): row-backing assets (Theme/Enable/Auto/Tier/Notice/Preview/Apply/
+-- Cancel seats) are placed at BACKGROUND layer, not the manifest's literal "ARTWORK"
+-- label. CONFLICT RESOLVED: an ARTWORK-layer backing would render above ProgressionRow's
+-- native `channel`/`selection` (both BACKGROUND), burying the selection-state glow
+-- that VISAGE-NATIVE-STATE-RETENTION.md itself requires to stay visible -- the same
+-- BACKGROUND convention already validated in the accepted Rack/Forge integration.
+for index,data in ipairs(THEMES) do
+    local row=UI.ProgressionRow:Create(primary,{id="visageTheme"..data[1],width=370,height=45,icon=false,compact=true,label=data[2],accentColor=data[3],onActivate=function() Screen:SetTheme("primary",data[1]) end}); row.root:SetPoint("TOPLEFT",primary,"TOPLEFT",38,-82-(index-1)*48); Screen.themes[data[1]]=row
+    local seat=row.root:CreateTexture(nil,"BACKGROUND"); seat:SetTexture(ASSET.."VisageThemeSeatPrimary"); seat:SetTexCoord(0,0.72265625,0,0.703125); seat:SetAllPoints(row.root); seat:SetAlpha(1)
+    local sigil=row.root:CreateTexture(nil,"OVERLAY"); sigil:SetTexture(ASSET..SIGILS[data[1]]); sigil:SetSize(32,32); sigil:SetPoint("LEFT",row.root,"LEFT",13,0); sigil:SetAlpha(1)
+    row.label:ClearAllPoints(); row.label:SetPoint("LEFT",row.root,"LEFT",52,0); row.label:SetWidth(370-52-12)
+end
+Screen.primaryToggle=UI.ProgressionRow:Create(primary,{id="visagePrimaryToggle",width=370,height=48,icon=false,compact=true,label="PRIMARY ENABLED",accentColor=Theme.colors.worldsoul,onActivate=function() Screen:Toggle("primary") end}); Screen.primaryToggle.root:SetPoint("TOPLEFT",primary,"TOPLEFT",38,-334)
+do local seat=Screen.primaryToggle.root:CreateTexture(nil,"BACKGROUND"); seat:SetTexture(ASSET.."VisageEnablePrimary"); seat:SetTexCoord(0,0.72265625,0,0.75); seat:SetAllPoints(Screen.primaryToggle.root); seat:SetAlpha(1) end
+for i,data in ipairs(TIERS) do local auto=data[1]==0; local fixedIndex=i-2; local width=auto and 370 or 180; local x=auto and 38 or (38+(fixedIndex%2)*190); local y=auto and -395 or (-443-math.floor(fixedIndex/2)*46); local row=UI.ProgressionRow:Create(primary,{id="visagePrimaryTier"..data[1],width=width,height=42,icon=false,compact=true,label=data[2],accentColor=auto and Theme.colors.bronzeBright or Theme.colors.worldsoul,onActivate=function() Screen:SetTier("primary",data[1]) end}); row.root:SetPoint("TOPLEFT",primary,"TOPLEFT",x,y); Screen.tiers.primary[data[1]]=row
+    local seat=row.root:CreateTexture(nil,"BACKGROUND"); seat:SetTexture(ASSET..(auto and "VisageAutoPrimary" or "VisageTierPrimary")); seat:SetTexCoord(0,auto and 0.72265625 or 0.703125,0,0.65625); seat:SetAllPoints(row.root); seat:SetAlpha(1)
+end
+Screen.secondaryToggle=UI.ProgressionRow:Create(secondary,{id="visageSecondaryToggle",width=370,height=48,icon=false,compact=true,label="SECONDARY ENABLED",accentColor={.58,.45,1,1},onActivate=function() Screen:Toggle("secondary") end}); Screen.secondaryToggle.root:SetPoint("TOPLEFT",secondary,"TOPLEFT",12,-82)
+do local seat=Screen.secondaryToggle.root:CreateTexture(nil,"BACKGROUND"); seat:SetTexture(ASSET.."VisageEnableSecondary"); seat:SetTexCoord(0,0.72265625,0,0.75); seat:SetAllPoints(Screen.secondaryToggle.root); seat:SetAlpha(1) end
+for i,data in ipairs(TIERS) do local auto=data[1]==0; local fixedIndex=i-2; local width=auto and 370 or 180; local x=auto and 12 or (12+(fixedIndex%2)*190); local y=auto and -143 or (-191-math.floor(fixedIndex/2)*46); local row=UI.ProgressionRow:Create(secondary,{id="visageSecondaryTier"..data[1],width=width,height=42,icon=false,compact=true,label=data[2],accentColor=auto and Theme.colors.bronzeBright or {.58,.45,1,1},onActivate=function() Screen:SetTier("secondary",data[1]) end}); row.root:SetPoint("TOPLEFT",secondary,"TOPLEFT",x,y); Screen.tiers.secondary[data[1]]=row
+    local seat=row.root:CreateTexture(nil,"BACKGROUND"); seat:SetTexture(ASSET..(auto and "VisageAutoSecondary" or "VisageTierSecondary")); seat:SetTexCoord(0,auto and 0.72265625 or 0.703125,0,0.65625); seat:SetAllPoints(row.root); seat:SetAlpha(1)
+end
+Screen.flash=UI.ProgressionRow:Create(secondary,{id="visageFlash",width=370,height=46,icon=false,compact=true,label="MILESTONE FLASH",accentColor=Theme.colors.bronzeBright,onActivate=function() Screen:ToggleNotice("flash") end}); Screen.flash.root:SetPoint("TOPLEFT",secondary,"TOPLEFT",12,-320)
+do local seat=Screen.flash.root:CreateTexture(nil,"BACKGROUND"); seat:SetTexture(ASSET.."VisageNoticeSeat"); seat:SetTexCoord(0,0.72265625,0,0.71875); seat:SetAllPoints(Screen.flash.root); seat:SetAlpha(1) end
+Screen.lore=UI.ProgressionRow:Create(secondary,{id="visageLore",width=370,height=46,icon=false,compact=true,label="LORE NOTICES",accentColor=Theme.colors.bronzeBright,onActivate=function() Screen:ToggleNotice("lore") end}); Screen.lore.root:SetPoint("TOPLEFT",secondary,"TOPLEFT",12,-370)
+do local seat=Screen.lore.root:CreateTexture(nil,"BACKGROUND"); seat:SetTexture(ASSET.."VisageNoticeSeat"); seat:SetTexCoord(0,0.72265625,0,0.71875); seat:SetAllPoints(Screen.lore.root); seat:SetAlpha(1) end
+for index,data in ipairs(THEMES) do local row=UI.ProgressionRow:Create(secondary,{id="visageSecondaryTheme"..data[1],width=370,height=42,icon=false,compact=true,label=data[2],accentColor=data[3],onActivate=function() Screen:SetTheme("secondary",data[1]) end}); row.root:SetPoint("TOPLEFT",secondary,"TOPLEFT",12,-430-(index-1)*45); Screen.secondaryThemes[data[1]]=row
+    local seat=row.root:CreateTexture(nil,"BACKGROUND"); seat:SetTexture(ASSET.."VisageThemeSeatSecondary"); seat:SetTexCoord(0,0.72265625,0,0.65625); seat:SetAllPoints(row.root); seat:SetAlpha(1)
+    local sigil=row.root:CreateTexture(nil,"OVERLAY"); sigil:SetTexture(ASSET..SIGILS[data[1]]); sigil:SetSize(32,32); sigil:SetPoint("LEFT",row.root,"LEFT",13,0); sigil:SetAlpha(1)
+    row.label:ClearAllPoints(); row.label:SetPoint("LEFT",row.root,"LEFT",52,0); row.label:SetWidth(370-52-12)
+end
+
+local hero=CreateFrame("Frame",nil,frame); hero:SetSize(610,570); hero:SetPoint("TOP",frame,"TOP",0,-135)
+local heroBack=Solid(hero,"ARTWORK",{.004,.006,.014,.56}); heroBack:SetPoint("TOPLEFT",hero,"TOPLEFT",46,-28); heroBack:SetPoint("BOTTOMRIGHT",hero,"BOTTOMRIGHT",-38,34); heroBack:Hide()
+-- Gate 1 (Visage): VisageManifestationVoid replaces the flat heroBack rectangle at
+-- identical bounds (526x508, matching heroBack's own TOPLEFT/BOTTOMRIGHT inset math).
+local manifestationVoid=Art(hero,"ARTWORK","VisageManifestationVoid",0.51367188,0.9921875); manifestationVoid:SetSize(526,508); manifestationVoid:SetPoint("TOPLEFT",hero,"TOPLEFT",46,-28); manifestationVoid:SetAlpha(1)
+local heroL=Solid(hero,"OVERLAY",Theme.colors.worldsoul); heroL:SetSize(4,430); heroL:SetPoint("LEFT",hero,"LEFT",22,4); heroL:SetAlpha(.42); heroL:Hide()
+local heroR=Solid(hero,"OVERLAY",{.58,.45,1,1}); heroR:SetSize(4,380); heroR:SetPoint("RIGHT",hero,"RIGHT",-18,-18); heroR:SetAlpha(.42); heroR:Hide()
+-- PlayerModel no-go zone (VISAGE-HERO-NO-GO-ZONE.md): geometry, unit, camera untouched.
+local model=CreateFrame("PlayerModel","EchoesUIVisageModel",hero); model:SetSize(540,430); model:SetPoint("TOP",hero,"TOP",0,-28); if model.SetUnit then model:SetUnit("player") end; Screen.model=model
+-- Gate 1 (Visage): VisageApertureOpen replaces the old near-complete-ring VisageAperture
+-- at the identical 610x570 slot. Top-left POT crop (0,uMax,0,vMax), matching every other
+-- asset in this manifest -- the native square-aperture's old mid-band crop (.18-.82) no
+-- longer applies since this asset is already cropped to the correct aspect at (0,0).
+-- Native dynamic alpha (.58/.82/.92 by preview state, set in Screen:Render) is preserved
+-- unchanged and is NOT flattened to a static value -- it is explicitly the one asset in
+-- this package whose "intended alpha" is native/dynamic, per VISAGE-PRIMITIVE-TO-ASSET-MAP.md.
+Screen.aperture=hero:CreateTexture(nil,"OVERLAY"); Screen.aperture:SetTexture(ASSET.."VisageApertureOpen"); Screen.aperture:SetSize(610,570); Screen.aperture:SetPoint("CENTER",hero,"CENTER",0,0); Screen.aperture:SetTexCoord(0,0.59570312,0,0.55664062); Screen.aperture:SetAlpha(.58)
+Screen.previewState=Label(hero,"SAVED MANIFESTATION",Theme.fonts.monument,16,Theme.colors.text,"BOTTOM",hero,"BOTTOM",0,74,500,"CENTER")
+Screen.previewNote=Label(hero,"Selections request a real temporary aura preview. Nearby players may see it.",Theme.fonts.readable,9,Theme.colors.textMuted,"BOTTOM",hero,"BOTTOM",0,46,520,"CENTER")
+Screen.mode="combined"; Screen.modeButton=UI.ProgressionRow:Create(hero,{id="visageMode",width=330,height=40,icon=false,compact=true,label="PREVIEW  ·  COMBINED",accentColor={.58,.45,1,1},onActivate=function() Screen:CycleMode() end}); Screen.modeButton.root:SetPoint("BOTTOM",hero,"BOTTOM",0,2)
+do local seat=Screen.modeButton.root:CreateTexture(nil,"BACKGROUND"); seat:SetTexture(ASSET.."VisagePreviewIsolation"); seat:SetTexCoord(0,0.64453125,0,0.625); seat:SetAllPoints(Screen.modeButton.root); seat:SetAlpha(1) end
+Screen.apply=Place(UI.ProgressionRow:Create(frame,{id="visageApply",width=280,height=66,label="APPLY MANIFESTATION",meta="SAVE THIS PREVIEW",value="APPLY",icon=false,accentColor=Theme.colors.worldsoul,onActivate=function() Screen:Apply() end}),696,730)
+do local seat=Screen.apply.root:CreateTexture(nil,"BACKGROUND"); seat:SetTexture(ASSET.."VisageApplyActuator"); seat:SetTexCoord(0,0.546875,0,0.515625); seat:SetAllPoints(Screen.apply.root); seat:SetAlpha(1) end
+Screen.cancel=Place(UI.ProgressionRow:Create(frame,{id="visageCancel",width=240,height=56,label="CANCEL PREVIEW",meta="RESTORE SAVED AURAS",value="REVERT",icon=false,accentColor=Theme.colors.bronzeBright,onActivate=function() Screen:CancelPreview() end}),716,812)
+do local seat=Screen.cancel.root:CreateTexture(nil,"BACKGROUND"); seat:SetTexture(ASSET.."VisageCancelActuator"); seat:SetTexCoord(0,0.9375,0,0.875); seat:SetAllPoints(Screen.cancel.root); seat:SetAlpha(1) end
+Screen.status=Label(frame,"",Theme.fonts.readable,10,Theme.colors.textMuted,"BOTTOM",frame,"BOTTOM",0,16,1100,"CENTER")
+
+local input=UI.InputManager:New(frame); Screen.input=input; for _,c in ipairs({Screen.back,Screen.home,Screen.close}) do input:Add(c,c.id) end; for _,data in ipairs(THEMES) do input:Add(Screen.themes[data[1]],Screen.themes[data[1]].id) end; input:Add(Screen.primaryToggle,Screen.primaryToggle.id); for _,data in ipairs(TIERS) do input:Add(Screen.tiers.primary[data[1]],Screen.tiers.primary[data[1]].id) end; input:Add(Screen.secondaryToggle,Screen.secondaryToggle.id); for _,data in ipairs(TIERS) do input:Add(Screen.tiers.secondary[data[1]],Screen.tiers.secondary[data[1]].id) end; for _,c in ipairs({Screen.flash,Screen.lore}) do input:Add(c,c.id) end; for _,data in ipairs(THEMES) do input:Add(Screen.secondaryThemes[data[1]],Screen.secondaryThemes[data[1]].id) end; for _,c in ipairs({Screen.modeButton,Screen.apply,Screen.cancel}) do input:Add(c,c.id) end
+local order={"back","home","close"}; for _,data in ipairs(THEMES) do order[#order+1]="visageTheme"..data[1] end; order[#order+1]="visagePrimaryToggle"; for _,data in ipairs(TIERS) do order[#order+1]="visagePrimaryTier"..data[1] end; order[#order+1]="visageSecondaryToggle"; for _,data in ipairs(TIERS) do order[#order+1]="visageSecondaryTier"..data[1] end; for _,id in ipairs({"visageFlash","visageLore"}) do order[#order+1]=id end; for _,data in ipairs(THEMES) do order[#order+1]="visageSecondaryTheme"..data[1] end; for _,id in ipairs({"visageMode","visageApply","visageCancel"}) do order[#order+1]=id end
+local nav={back={DOWN="visageThemeworldsoul"},home={LEFT="back",RIGHT="close",DOWN="visageSecondaryToggle"},close={LEFT="home",DOWN="visageSecondaryToggle"},visageMode={DOWN="visageApply",LEFT="visagePrimaryToggle",RIGHT="visageSecondaryToggle"},visageApply={UP="visageMode",DOWN="visageCancel"},visageCancel={UP="visageApply"}}
+for i,data in ipairs(THEMES) do nav["visageTheme"..data[1]]={UP=i==1 and "back" or "visageTheme"..THEMES[i-1][1],DOWN=i==#THEMES and "visagePrimaryToggle" or "visageTheme"..THEMES[i+1][1],RIGHT="visageMode"} end; nav.visagePrimaryToggle={UP="visageThemeinfernal",DOWN="visagePrimaryTier0",RIGHT="visageMode"}; for i,data in ipairs(TIERS) do nav["visagePrimaryTier"..data[1]]={UP=i<=2 and "visagePrimaryToggle" or "visagePrimaryTier"..TIERS[i-2][1],DOWN=i>#TIERS-2 and "visageMode" or "visagePrimaryTier"..TIERS[i+2][1],RIGHT="visageMode"} end; nav.visageSecondaryToggle={UP="home",DOWN="visageSecondaryTier0",LEFT="visageMode"}; for i,data in ipairs(TIERS) do nav["visageSecondaryTier"..data[1]]={UP=i<=2 and "visageSecondaryToggle" or "visageSecondaryTier"..TIERS[i-2][1],DOWN=i>#TIERS-2 and "visageFlash" or "visageSecondaryTier"..TIERS[i+2][1],LEFT="visageMode"} end; nav.visageFlash={UP="visageSecondaryTier4",DOWN="visageLore",LEFT="visageMode"}; nav.visageLore={UP="visageFlash",DOWN="visageSecondaryThemeworldsoul",LEFT="visageMode"}; for i,data in ipairs(THEMES) do nav["visageSecondaryTheme"..data[1]]={UP=i==1 and "visageLore" or "visageSecondaryTheme"..THEMES[i-1][1],DOWN=i==#THEMES and "visageMode" or "visageSecondaryTheme"..THEMES[i+1][1],LEFT="visageMode"} end; input:SetNavigation(order,nav); input.defaultFocusId="visageMode"; input.onEscape=function() Screen:Leave("back") end
+
+function Screen:LoadDraft(values) self.draft={primary={theme=values.visage_primary_theme or "worldsoul",tier=tonumber(values.visage_primary_tier_selected) or 0,enabled=tonumber(values.visage_primary_enabled) or 0,max=tonumber(values.visage_primary_tier_max) or 0},secondary={theme=values.visage_secondary_theme or "worldsoul",tier=tonumber(values.visage_secondary_tier_selected) or 0,enabled=tonumber(values.visage_secondary_enabled) or 0,max=tonumber(values.visage_secondary_tier_max) or 0},flash=tonumber(values.visage_flash_enabled) or 0,lore=tonumber(values.visage_chat_flavor_enabled) or 0}; self.unlocked=Set(values.visage_themes_unlocked) end
+function Screen:Render(values)
+    values=values or UI.StateStore.values or {}; if not self.draft then self:LoadDraft(values) end; self.primaryGate:SetText("ATTUNED RELICS  "..FormatInt(values.visage_attuned_count).."  ·  EARNED TIER "..self.draft.primary.max); self.secondaryGate:SetText("CRUCIBLE INVESTMENT  "..FormatInt(values.visage_crucible_invested).."  ·  EARNED TIER "..self.draft.secondary.max)
+    for _,data in ipairs(THEMES) do local unlocked=self.unlocked[data[1]]; local row=self.themes[data[1]]; local primarySelected=self.draft.primary.theme==data[1]; row.label:SetText(data[2]..(unlocked and "" or "  /  LOCKED")); row.selection:SetAlpha(primarySelected and .14 or 0); row.root:SetAlpha(unlocked and 1 or .30); row.edge:SetAlpha(unlocked and (primarySelected and .92 or .48) or .14); row:SetEnabled(unlocked and not self.previewPending); local second=self.secondaryThemes[data[1]]; local secondarySelected=self.draft.secondary.theme==data[1]; second.label:SetText(data[2]..(unlocked and "" or "  /  LOCKED")); second.selection:SetAlpha(secondarySelected and .14 or 0); second.root:SetAlpha(unlocked and 1 or .30); second.edge:SetAlpha(unlocked and (secondarySelected and .92 or .48) or .14); second:SetEnabled(unlocked and not self.previewPending) end
+    self.primaryToggle.label:SetText("PRIMARY  "..(self.draft.primary.enabled==1 and "ENABLED" or "DISABLED")); self.secondaryToggle.label:SetText("SECONDARY  "..(self.draft.secondary.enabled==1 and "ENABLED" or "DISABLED"))
+    for _,layer in ipairs({"primary","secondary"}) do for _,data in ipairs(TIERS) do local row=self.tiers[layer][data[1]]; local allowed=data[1]==0 or data[1]<=self.draft[layer].max; local selected=self.draft[layer].tier==data[1]; row.label:SetText((data[1]==0 and "AUTO / EARNED" or data[2])..(allowed and "" or "  /  LOCKED")); row.selection:SetAlpha(selected and .14 or 0); row.root:SetAlpha(allowed and 1 or .28); row.edge:SetAlpha(allowed and (selected and .88 or (data[1]==0 and .56 or .34)) or .12); row:SetEnabled(allowed and not self.previewPending) end end
+    self.flash.label:SetText("MILESTONE FLASH  "..(self.draft.flash==1 and "ON" or "OFF")); self.lore.label:SetText("LORE NOTICES  "..(self.draft.lore==1 and "ON" or "OFF")); self.modeButton.label:SetText("PREVIEW  ·  "..string.upper(self.mode)); self.apply:SetEnabled(self.previewActive and not self.previewPending); self.cancel:SetEnabled(self.previewActive and not self.previewPending); self.previewState:SetText(self.previewPending and "REQUESTING REAL AURA PREVIEW" or (self.previewActive and "TEMPORARY PREVIEW  ·  NOT SAVED" or "SAVED MANIFESTATION")); self.aperture:SetAlpha(self.previewPending and .82 or (self.previewActive and .92 or .58)); self.aperture:SetVertexColor(self.previewActive and .86 or .70,self.previewActive and .92 or .78,1,1)
+end
+function Screen:RequestPreview() if not self.active or self.previewPending then return end; self.previewPending=true; self:Render(UI.StateStore.values); local d=self.draft; APB:RequestEchoesAction("visage_preview",self.mode,d.primary.theme,d.primary.tier,d.primary.enabled,d.secondary.theme,d.secondary.tier,d.secondary.enabled); self.previewToken=(self.previewToken or 0)+1; local token=self.previewToken; C_Timer.After(5,function() if Screen.active and Screen.previewPending and Screen.previewToken==token then Screen.previewPending=false; Screen.status:SetText("Preview response timed out; saved auras are unchanged."); Screen:Render(UI.StateStore.values) end end) end
+function Screen:SetTheme(layer,theme) if self.unlocked[theme] then self.draft[layer].theme=theme; self:RequestPreview() end end
+function Screen:SetTier(layer,tier) if tier==0 or tier<=self.draft[layer].max then self.draft[layer].tier=tier; self:RequestPreview() end end
+function Screen:Toggle(layer) self.draft[layer].enabled=self.draft[layer].enabled==1 and 0 or 1; self:RequestPreview() end
+function Screen:CycleMode() self.mode=self.mode=="combined" and "primary" or (self.mode=="primary" and "secondary" or "combined"); self:RequestPreview() end
+function Screen:ToggleNotice(kind) self.draft[kind]=self.draft[kind]==1 and 0 or 1; APB:RequestEchoesAction("visage_notifications",self.draft.flash,self.draft.lore); self:Render(UI.StateStore.values) end
+function Screen:Apply() if self.previewActive and not self.previewPending then self.previewPending=true; self:Render(UI.StateStore.values); APB:RequestEchoesAction("visage_apply") end end
+function Screen:CancelPreview() if self.previewActive and not self.previewPending then self.previewPending=true; self:Render(UI.StateStore.values); APB:RequestEchoesAction("visage_cancel") end end
+function Screen:OnAction(verb,fields) if not self.active then return end; if verb=="ACTION_OK" and fields.action=="visage_preview" then self.previewPending=false; self.previewActive=fields.status=="PREVIEWING"; self.status:SetText(self.previewActive and "Real temporary aura preview active for 30 seconds. Apply or cancel." or fields.status); self:Render(UI.StateStore.values)
+    elseif verb=="ACTION_OK" and fields.action=="visage_apply" then self.previewPending=false; self.previewActive=false; self.status:SetText("Manifestation saved for this character."); self.draft=nil; APB:RequestEchoesState(); self:Render(UI.StateStore.values)
+    elseif verb=="ACTION_OK" and fields.action=="visage_cancel" then self.previewPending=false; self.previewActive=false; self.status:SetText("Saved manifestation restored."); self.draft=nil; APB:RequestEchoesState(); self:Render(UI.StateStore.values)
+    elseif verb=="ACTION_OK" and fields.action=="visage_notifications" then self.status:SetText("Notification preferences saved."); APB:RequestEchoesState()
+    elseif verb=="ERROR" and self.previewPending then self.previewPending=false; self.status:SetText("Visage request unavailable: "..tostring(fields.code)); self:Render(UI.StateStore.values) end end
+function Screen:UpdateScale() self.frame:SetScale(math.min((UIParent:GetWidth() or 1672)/1672,(UIParent:GetHeight() or 941)/941)) end
+function Screen:Show() if not self:IsAvailable() then return false end; self.active=true; self.draft=nil; self:UpdateScale(); if APB.C43 and APB.C43.frame then APB.C43.frame:Hide() end; self.frame:SetAlpha(UI:IsReducedMotion() and 1 or 0); self.frame:Show(); Animation:Alpha(self.frame,1,.22); self:LoadDraft(UI.StateStore.values); self:Render(UI.StateStore.values); self.input:SetFocusById("visageMode"); APB:RequestEchoesState(); return true end
+function Screen:Hide() if self.previewActive and APB.RequestEchoesAction then APB:RequestEchoesAction("visage_cancel") end; self.active=false; self.previewActive=false; self.previewPending=false; self.previewToken=(self.previewToken or 0)+1; self.draft=nil; self.input:ClearFocus(); Animation:Stop(self.frame); self.frame:Hide() end
+function Screen:Leave(destination) self:Hide(); local focus=destination=="home" and "core" or "visage"; if UI.DashboardGateB and UI.ScreenManager:Show("dashboardGateB",false,focus) then return end; UI.ScreenManager.current=nil; if APB.C43 then APB.C43:Show() end end
+function Screen:CloseCompanion() self:Hide(); UI.ScreenManager.current=nil; UI.ScreenManager.history={}; if APB.C43 and APB.C43.Hide then APB.C43:Hide() end end
+function Screen:IsAvailable() local e=APB and APB.echoes; return UI.flags.nativeVisage~=false and e and e.welcomed==true and e.compatible~=0 and e.caps and e.caps.visage_state_v1 and e.caps.visage_preview_v1 and e.caps.action_visage_preview and e.caps.action_visage_apply and e.caps.action_visage_cancel end
+UI.StateStore:Subscribe(function(values) if Screen.active and not Screen.previewActive and not Screen.previewPending then Screen.draft=nil; Screen:LoadDraft(values); Screen:Render(values) end end); if APB and APB.SubscribeEchoesActions then APB:SubscribeEchoesActions(function(v,f) Screen:OnAction(v,f) end) end; UI.VisageScreen=Screen; UI.ScreenManager:Register("visage",Screen,false); UI.modules.VisageScreen=true

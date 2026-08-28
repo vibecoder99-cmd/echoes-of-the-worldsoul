@@ -5,33 +5,38 @@
 -- (at your option) any later version. See LICENSE for the full text.
 -- ============================================================
 -- EchoesOfTheWorldsoulBridge.lua
--- Echoes of the Worldsoul — Client AddOn (WoW 3.3.5a / Interface 30300)
--- Version: 1.1.0  (fixes: spam loop, re-entrancy, background refresh)
+-- Echoes of the Worldsoul â€” Client AddOn (WoW 3.3.5a / Interface 30300)
+-- Version: 1.5.2
 -- ============================================================
 -- HOW THE BRIDGE WORKS (read this before editing):
 --
---   1. Player hovers an item → OnTooltipSetItem fires.
+--   1. Player hovers an item â†’ OnTooltipSetItem fires.
 --   2. We extract the item entry from the tooltip link.
---   3. If we have cached data → inject lines immediately, DONE.
+--   3. If we have cached data â†’ inject lines immediately (unless the
+--      cached result is ineligible, in which case we add nothing).
 --      (No network request needed. Cache hit = zero spam.)
---   4. If no cache → show "fetching" line, set a REQUEST GUARD,
---      send ONE "#ap tip <entry>" as a WHISPER to ourselves.
---      The request guard prevents any further sends until the
---      response arrives OR the tooltip is closed.
---   5. Server receives the whisper via PLAYER_EVENT_ON_CHAT,
+--   4. If no cache â†’ send ONE "#ap tip <entry>" through SAY and wait.
+--      No placeholder line is shown while waiting: tooltip enrichment
+--      is optional metadata, so the plain Blizzard tooltip stays up
+--      untouched until a useful (eligible) response actually arrives.
+--      This avoids a "fetching..." flash on ineligible items, since the
+--      server's ineligible=1 response never touches the tooltip at all.
+--   5. Server receives the request via PLAYER_EVENT_ON_CHAT,
 --      swallows it (returns false), builds the payload, and
 --      sends it back via SendBroadcastMessage (CHAT_MSG_SYSTEM).
---   6. Our CHAT_MSG_SYSTEM filter catches "[APTIP] …", hides it,
---      writes the cache, then repaints the tooltip ONCE.
+--   6. Our CHAT_MSG_SYSTEM filter catches "[APTIP] â€¦", hides it,
+--      writes the cache, then repaints the tooltip ONCE -- but only
+--      if the response is eligible. An ineligible response is cached
+--      silently; nothing was ever shown, so nothing needs removing.
 --
 -- BUG FIXES IN 1.1.0:
 --   FIX-1: Re-entrancy guard (APB.injecting) prevents the tooltip
 --           repaint inside InjectTooltipLines from re-triggering
 --           OnTooltipSetItem, which caused the infinite SAY loop.
---   FIX-2: Request channel changed from SAY to WHISPER-to-self.
---           SAY is visible to nearby players even for a split
---           second before the server swallows it.  Whisper to
---           self is silent client-side until the server responds.
+--   FIX-2: Internal requests use SAY because this realm rejects
+--           whisper-to-self before Echoes receives it. Exact client
+--           filters and the server's false return suppress the
+--           recognized control messages.
 --   FIX-3: Background "refresh on cache hit" removed.  That was
 --           the second source of the spam loop: every tooltip open
 --           on a cached item sent a new request anyway.
@@ -39,6 +44,11 @@
 --           A new hover on a *different* item cancels the pending
 --           request and starts fresh.  Same-item re-hover is
 --           ignored while a request is in-flight.
+--   FIX-5: Removed the immediate "fetching..." placeholder. It made
+--           every ineligible item (consumables, quest items, etc.)
+--           briefly show Echoes UI before the ineligible response
+--           removed it. Tooltip enrichment is now silent until an
+--           eligible response actually has something to add.
 -- ============================================================
 
 -- ============================================================
@@ -80,16 +90,42 @@ local APB = {
     pendingTimeout  = 4.0,
     hoveredEntry    = nil,
     injecting       = false,
-    cacheMaxAge     = 8.0,   -- seconds before a cache entry is considered stale
+    cacheMaxAge     = 0.75,  -- short-lived; attunement can change after each kill
     playerName      = nil,
     -- Entry we have already injected lines for in the current tooltip show.
     -- Prevents duplicate injection when OnTooltipSetItem fires multiple times
     -- for the same tooltip (which 3.3.5 does after any tooltip modification).
     injectedEntry   = nil,
+    attunementSubscribers = {},
+    nextAttunementSubscriberId = 0,
 }
 
 -- Expose for debugging: /dump APB
 _G["APB"] = APB
+
+local function IsCacheFresh(cached)
+    if not cached or not cached.ts then return false end
+    local age = GetTime() - cached.ts
+    return age >= 0 and age < APB.cacheMaxAge
+end
+
+local function IsAttunementRequestExcluded(entry)
+    return entry == 900010 or entry == 900011
+end
+
+local function ClearEquippedTooltipCache()
+    APB.pendingEntry = nil
+    APB.pendingTime  = 0
+    for slot = 0, 18 do
+        local itemLink = GetInventoryItemLink("player", slot + 1)
+        if itemLink then
+            local itemId = tonumber(itemLink:match("item:(%d+)"))
+            if itemId then
+                DB.cache[itemId] = nil
+            end
+        end
+    end
+end
 
 -- ============================================================
 -- PAYLOAD PARSER
@@ -119,6 +155,10 @@ local function ParsePayload(msg)
     end
 
     local entry = tonumber(kv("id"))
+    local ineligible = kv("ineligible") == "1"
+    if entry and ineligible then
+        return { entry=entry, ineligible=true, ts=GetTime() }
+    end
     local prog  = tonumber(kv("prog"))
     local cap   = tonumber(kv("cap"))
     if not entry or not prog or not cap then return nil end
@@ -148,19 +188,20 @@ end
 
 -- ============================================================
 -- REQUEST SENDER
--- Sends one whisper-to-self with the tip request.
+-- Sends one server-consumed SAY control message with the tip request.
 -- Guards prevent sending if a request is already in-flight for
 -- the same entry, or if the entry is already cached and fresh.
 -- ============================================================
 local function SendRequest(entry)
     if not entry or entry <= 0 then return end
+    if IsAttunementRequestExcluded(entry) then return end
     if not APB.playerName then return end  -- not logged in yet
 
     local now = GetTime()
 
     -- Is there a fresh cached entry?
     local cached = DB.cache[entry]
-    if cached and (now - cached.ts) < APB.cacheMaxAge then
+    if IsCacheFresh(cached) then
         return
     end
 
@@ -180,12 +221,38 @@ local function SendRequest(entry)
     SendChatMessage("#ap tip " .. entry, "SAY")
 end
 
+-- Native system screens reuse the proven tooltip request path instead of
+-- introducing a second equipped-attunement transport. The callback receives
+-- the exact parsed APTIP payload after it has entered the shared cache.
+function APB:RequestAttunement(entry)
+    entry = tonumber(entry)
+    if not entry or entry <= 0 or IsAttunementRequestExcluded(entry) then return false end
+    local cached = DB.cache[entry]
+    if IsCacheFresh(cached) then
+        for _, callback in pairs(self.attunementSubscribers) do
+            pcall(callback, cached)
+        end
+        return true
+    end
+    SendRequest(entry)
+    return self.pendingEntry == entry
+end
+
+function APB:SubscribeAttunement(callback)
+    if type(callback) ~= "function" then return nil end
+    self.nextAttunementSubscriberId = self.nextAttunementSubscriberId + 1
+    local id = self.nextAttunementSubscriberId
+    self.attunementSubscribers[id] = callback
+    return function() APB.attunementSubscribers[id] = nil end
+end
+
 -- ============================================================
 -- TOOLTIP LINE BUILDER
 -- Shared helper that adds AP lines to a tooltip.
--- Does NOT call tooltip:Show() — callers decide whether to do that.
+-- Does NOT call tooltip:Show() â€” callers decide whether to do that.
 -- ============================================================
 local function AddTooltipLines(tooltip, data)
+    if data.ineligible then return end
     local prog = data.prog or 0
     local cap  = data.cap  or 10000
     local pct  = math.floor((prog / cap) * 100)
@@ -227,9 +294,9 @@ end
 -- TOOLTIP LINE INJECTOR
 -- Used by the deferred repaint (C_Timer.After) path only.
 -- Since we are outside the OnTooltipSetItem call stack here,
--- we need tooltip:Show() to force a resize — but we also need
+-- we need tooltip:Show() to force a resize â€” but we also need
 -- the re-entrancy guard to prevent the Show() from triggering
--- OnTooltipSetItem → InjectTooltipLines → Show() loop.
+-- OnTooltipSetItem â†’ InjectTooltipLines â†’ Show() loop.
 -- ============================================================
 local function InjectTooltipLines(tooltip, data)
     if not tooltip or not data then return end
@@ -241,8 +308,25 @@ local function InjectTooltipLines(tooltip, data)
     APB.injecting = false
 end
 
+-- Rebuild the original item tooltip before applying the response. This removes
+-- the transient fetching line instead of stacking final data beneath it. An
+-- ineligible response therefore restores the untouched base tooltip exactly.
+local function RebuildTooltip(tooltip, data)
+    if not tooltip or not data or not tooltip.GetItem then return end
+    local _, link = tooltip:GetItem()
+    if not link or not tooltip.ClearLines or not tooltip.SetHyperlink then return end
+
+    APB.injecting = true
+    APB.injectedEntry = data.entry
+    tooltip:ClearLines()
+    tooltip:SetHyperlink(link)
+    if not data.ineligible then AddTooltipLines(tooltip, data) end
+    tooltip:Show()
+    APB.injecting = false
+end
+
 -- ============================================================
--- TOOLTIP HOOK — OnTooltipSetItem
+-- TOOLTIP HOOK â€” OnTooltipSetItem
 -- Fires whenever GameTooltip (or ItemRefTooltip) populates with
 -- an item.  This is the only place we call SendRequest.
 -- ============================================================
@@ -251,18 +335,22 @@ local function OnTooltipSetItem(tooltip)
 
     local entry = GetTooltipItemEntry(tooltip)
     if not entry then return end
+    if IsAttunementRequestExcluded(entry) then return end
 
     APB.hoveredEntry = entry
 
-    -- Already injected for this entry in the current tooltip show — skip.
+    -- Already injected for this entry in the current tooltip show â€” skip.
     -- This prevents the blink caused by OnTooltipSetItem firing multiple
     -- times for the same tooltip after AddLine modifies it.
     if APB.injectedEntry == entry then return end
 
     local cached = DB.cache[entry]
-    local now    = GetTime()
 
-    if cached and (now - cached.ts) < APB.cacheMaxAge then
+    if IsCacheFresh(cached) then
+        if cached.ineligible then
+            APB.injectedEntry = entry
+            return
+        end
         -- Fresh cache hit: add lines once, mark as injected.
         APB.injecting    = true
         APB.injectedEntry = entry
@@ -271,14 +359,11 @@ local function OnTooltipSetItem(tooltip)
         return
     end
 
-    -- No fresh cache: add "fetching" placeholder once, mark as injected
-    -- so subsequent OnTooltipSetItem fires don't add it again.
-    APB.injecting     = true
-    APB.injectedEntry = entry
-    tooltip:AddLine(" ")
-    tooltip:AddLine("|cff9966ff[EotW]|r  fetching...", 1, 1, 1)
-    APB.injecting     = false
-
+    -- No fresh cache: request silently. Do NOT touch the tooltip -- it
+    -- is optional enrichment, and most first-hover misses turn out to be
+    -- ineligible items that should never show any Echoes UI at all. The
+    -- eligible-response repaint (HandleChatMessage/RebuildTooltip) adds
+    -- the real lines if and when they actually arrive.
     SendRequest(entry)
 end
 
@@ -301,7 +386,7 @@ end
 
 -- ============================================================
 -- CHAT MESSAGE FILTER
--- Catches "[APTIP] …" messages, hides them from all chat frames,
+-- Catches "[APTIP] â€¦" messages, hides them from all chat frames,
 -- parses the data, and updates the cache.
 -- If the player is still hovering the item that just replied,
 -- we repaint the tooltip once.
@@ -324,23 +409,31 @@ local function HandleChatMessage(self, event, msg, ...)
         APB.pendingTime  = 0
     end
 
+    for _, callback in pairs(APB.attunementSubscribers) do
+        pcall(callback, data)
+    end
+
     -- If the player is still hovering this item, repaint with real data.
+    -- An ineligible response never had anything injected (no placeholder
+    -- is shown while pending -- see FIX-5), so there is nothing to remove
+    -- and no rebuild is needed; skipping it also avoids any needless
+    -- tooltip Show()/ClearLines() cycle on an otherwise-untouched tooltip.
     -- We use a 0-second timer so the filter function returns (hiding the
     -- message) before we touch the tooltip, avoiding any frame-during-filter issues.
     -- NOTE: We check the tooltip's actual item entry directly rather than
     -- APB.hoveredEntry, because OnTooltipCleared may have fired and cleared
     -- hoveredEntry even while the tooltip is still visually open (e.g. on
     -- a brief flicker). This makes the repaint reliable on first hover.
-    C_Timer.After(0, function()
-        if not GameTooltip:IsVisible() then return end
-        local currentEntry = GetTooltipItemEntry(GameTooltip)
-        if currentEntry == data.entry then
-            -- Reset injectedEntry so InjectTooltipLines (which uses Show())
-            -- is allowed to run, and so the guard doesn't block it.
-            APB.injectedEntry = nil
-            InjectTooltipLines(GameTooltip, data)
-        end
-    end)
+    if not data.ineligible then
+        C_Timer.After(0, function()
+            for _, tooltip in ipairs({GameTooltip, ItemRefTooltip}) do
+                if tooltip and tooltip:IsVisible() then
+                    local currentEntry = GetTooltipItemEntry(tooltip)
+                    if currentEntry == data.entry then RebuildTooltip(tooltip, data) end
+                end
+            end
+        end)
+    end
 
     -- Return true = suppress this message from all chat frames.
     return true
@@ -358,18 +451,332 @@ ChatFrame_AddMessageEventFilter("CHAT_MSG_WHISPER", function(self, event, msg, .
     return false
 end)
 
--- Suppress outgoing whisper notifications ("To [Name]: #ap tip 1234").
--- CHAT_MSG_WHISPER_INFORM fires for every whisper the client sends.
+-- Legacy safety filter for exact internal tooltip whispers. The active
+-- transport is SAY, but retaining this exact filter avoids leaking a stale
+-- queued request across an AddOn reload.
 ChatFrame_AddMessageEventFilter("CHAT_MSG_WHISPER_INFORM", function(self, event, msg, ...)
-    if msg and msg:lower():find("#ap tip %d+") then return true end
+    if msg and msg:lower():match("^#ap tip %d+$") then return true end
     return false
 end)
 
--- Suppress outgoing SAY messages containing #ap tip (now the primary request channel).
+-- Suppress only the exact internal SAY control-message forms. Do not
+-- hide arbitrary player speech containing "ap" or "#ap".
 ChatFrame_AddMessageEventFilter("CHAT_MSG_SAY", function(self, event, msg, ...)
-    if msg and msg:lower():find("#ap tip %d+") then return true end
+    if not msg then return false end
+    local lower = msg:lower()
+    if lower:match("^#ap tip %d+$") then return true end
+    if lower:match("^#ap clientversion [%w%._%-]+$") then return true end
+    if lower == "ap" then return true end
+    if lower:match("^#ap hello %d+ [%w_,]*$") then return true end
+    if lower == "#ap state" then return true end
+    if lower:match("^#ap action [%w_]+[%s%w_%-]*$") then return true end
+    if lower == "#ap codex manifest" then return true end
+    if lower:match("^#ap codex page %d+ %d+$") then return true end
+    if lower:match("^#ap codex search [%w%%._%-]+$") then return true end
     return false
 end)
+
+-- ============================================================
+-- E2J15 CLIENT COMPANION PROTOCOL
+-- Structured server<->client contract layered on the SAME SAY-based
+-- control channel the tooltip bridge already uses (no new transport).
+-- Requests: "#ap hello <protocolVersion> <capsCSV>" / "#ap state" /
+--           "#ap action <name>" / "#ap codex ...", all sent through SAY,
+-- exactly like the existing "#ap tip"/"#ap clientversion" requests above.
+-- Responses: "[ECHOES]<VERB>|k=v|k=v|..." over CHAT_MSG_SYSTEM, the same
+-- transport [APTIP] and [EOTW_FLASH] already use, but with its own
+-- distinct bracket tag so it can never collide with either.
+-- See E2J15-CLIENT-COMPANION-PROTOCOL-SPEC.md for the full grammar.
+-- ============================================================
+local ECHOES_PROTOCOL_VERSION = 1
+local ECHOES_CLIENT_CAPS = "structured_state_v1,progression_ui_v1,world_threat_ui_v1,crucible_ui_v1,talents_ui_v1,rack_ui_v1,forge_ui_v1,visage_ui_v1,codex_ui_v1,search_ui_v1"
+
+-- One-shot, bounded detection state. HELLO is sent exactly once per
+-- login (see PLAYER_LOGIN below) and never retried automatically — a
+-- non-Echoes server or an unresponsive one simply leaves this at its
+-- initial "unknown" state for the rest of the session, per the
+-- dormancy requirement (no repeated handshake flood).
+APB.echoes = {
+    helloSent      = false,
+    welcomed       = false,   -- true only after a real [ECHOES]WELCOME
+    serverVersion  = nil,
+    protocolVersion = nil,
+    compatible     = nil,     -- 1/0, only meaningful once welcomed
+    caps           = {},      -- set of server capability strings
+    actionSubscribers = {},
+    nextActionSubscriberId = 0,
+    codexSubscribers = {},
+    nextCodexSubscriberId = 0,
+    codexTopics = {},
+    lastStateRequestTime = -10,
+    stateRequestToken = 0,
+    stateRequestScheduled = false,
+    -- Coalesces rapid page navigation (NEXT/PREVIOUS held or clicked fast)
+    -- into a single request for whichever page is currently desired, paced
+    -- to stay under the server's per-second codex_page rate limit. See
+    -- RequestCodexPage below.
+    codexPage = {
+        scheduled     = false,
+        lastSendTime  = -10,
+        desiredTopic  = nil,
+        desiredPage   = nil,
+        sentTopic     = nil,
+        sentPage      = nil,
+    },
+}
+
+-- Splits "[ECHOES]VERB|k1=v1|k2=v2" into (verb, {k1=v1, k2=v2, ...}).
+-- Returns nil on anything that doesn't match the exact grammar - an
+-- unparseable [ECHOES] message is dropped silently, never surfaced as
+-- a Lua error (malformed-input tolerance, matches ParsePayload's own
+-- posture for [APTIP]).
+local function ParseEchoesPayload(msg)
+    if not msg then return nil end
+    -- ACTION_OK is part of the documented grammar, so underscores must be
+    -- accepted alongside uppercase letters.
+    local verb, tail = msg:match("^%[ECHOES%]([%u_]+)(.*)$")
+    if not verb then return nil end
+
+    local fields = {}
+    if tail and tail ~= "" then
+        -- tail starts with "|k=v|k=v..."
+        for kv in tail:gmatch("|([^|]+)") do
+            local k, v = kv:match("^([%w_]+)=(.*)$")
+            if k then fields[k] = v end
+        end
+    end
+    return verb, fields
+end
+
+local function EchoesLog(...)
+    if not APB.debugProtocol then return end
+    print("|cff66ccff[Echoes]|r", ...)
+end
+
+local function EncodeCodexText(value)
+    return (tostring(value or ""):gsub("([^%w%._%-])", function(char)
+        return string.format("%%%02X", string.byte(char))
+    end))
+end
+
+local function DecodeCodexText(value)
+    return (tostring(value or ""):gsub("%%(%x%x)", function(hex)
+        return string.char(tonumber(hex, 16))
+    end))
+end
+
+-- Sent once at login (see PLAYER_LOGIN). Advertises this client's
+-- protocol version and capability set; does not assume the server
+-- will ever answer (bounded, no retry loop).
+local function SendHello()
+    if APB.echoes.helloSent then return end
+    APB.echoes.helloSent = true
+    SendChatMessage("#ap hello " .. ECHOES_PROTOCOL_VERSION .. " " .. ECHOES_CLIENT_CAPS, "SAY")
+    EchoesLog("HELLO sent (protocol " .. ECHOES_PROTOCOL_VERSION .. ")")
+end
+
+-- Structured state request. Safe to call repeatedly (server-side rate
+-- limited); does not implement client-side throttling itself, since
+-- server-side validation is the actual authority per the trust-boundary
+-- rule - this just sends the request.
+local function RequestEchoesState()
+    if not APB.echoes.welcomed then
+        EchoesLog("state requested before WELCOME - server may not be Echoes-enabled or hasn't responded yet")
+    end
+    SendChatMessage("#ap state", "SAY")
+end
+
+function APB:RequestEchoesState()
+    -- Coalesce onto the earliest permitted send. Replacing a delayed request
+    -- with a newer delayed request can starve STATE indefinitely while a user
+    -- is operating a screen rapidly.
+    if self.echoes.stateRequestScheduled then return true end
+    self.echoes.stateRequestToken = self.echoes.stateRequestToken + 1
+    local token = self.echoes.stateRequestToken
+    local elapsed = GetTime() - (self.echoes.lastStateRequestTime or -10)
+    local delay = math.max(0, 1.05 - elapsed)
+    local function send()
+        if APB.echoes.stateRequestToken ~= token then return end
+        APB.echoes.stateRequestScheduled = false
+        APB.echoes.lastStateRequestTime = GetTime()
+        RequestEchoesState()
+    end
+    if delay > 0 then
+        self.echoes.stateRequestScheduled = true
+        C_Timer.After(delay, send)
+    else
+        send()
+    end
+    return true
+end
+
+-- Thin action sender for server-advertised E2J15 actions. All validation and
+-- execution remain server-side; native screens only observe the structured
+-- result through SubscribeEchoesActions.
+local function RequestEchoesAction(name, ...)
+    if not name or name == "" then return end
+    if not tostring(name):match("^[%w_]+$") then return false end
+    local parts = {"#ap action", tostring(name)}
+    for index = 1, select("#", ...) do
+        local value = tostring(select(index, ...))
+        if not value:match("^[%w_%-]+$") then return false end
+        parts[#parts + 1] = value
+    end
+    SendChatMessage(table.concat(parts, " "), "SAY")
+    return true
+end
+
+function APB:RequestEchoesAction(name, ...)
+    return RequestEchoesAction(name, ...)
+end
+
+function APB:SubscribeEchoesActions(callback)
+    if type(callback) ~= "function" then return nil end
+    self.echoes.nextActionSubscriberId = self.echoes.nextActionSubscriberId + 1
+    local id = self.echoes.nextActionSubscriberId
+    self.echoes.actionSubscribers[id] = callback
+    return function() APB.echoes.actionSubscribers[id] = nil end
+end
+
+function APB:SubscribeCodex(callback)
+    if type(callback) ~= "function" then return nil end
+    self.echoes.nextCodexSubscriberId = self.echoes.nextCodexSubscriberId + 1
+    local id = self.echoes.nextCodexSubscriberId
+    self.echoes.codexSubscribers[id] = callback
+    return function() APB.echoes.codexSubscribers[id] = nil end
+end
+
+local function NotifyCodex(verb, fields)
+    for _, callback in pairs(APB.echoes.codexSubscribers) do pcall(callback, verb, fields) end
+end
+
+function APB:RequestCodexManifest()
+    SendChatMessage("#ap codex manifest", "SAY")
+    return true
+end
+
+-- Rapid NEXT/PREVIOUS clicks (or a Search result opening a page while a
+-- prior navigation is still in flight) must not each fire an immediate SAY.
+-- The server's codex_page rate bucket allows roughly one request/second;
+-- sending faster than that produces a RATE_LIMITED [ECHOES]ERROR that has
+-- nothing to do with a real failure. Instead of sending on every call, we
+-- remember the most recently DESIRED page and let a single pending timer
+-- (paced to stay under the server window) send whatever is current when it
+-- fires -- exactly like RequestEchoesState's existing coalescing pattern,
+-- extended to carry the (topic, page) payload through. sentTopic/sentPage
+-- record what the outstanding request actually asked for, so a screen can
+-- tell a genuine failure apart from an error that belongs to a page the
+-- player has since navigated away from (see CodexScreen:OnCodex).
+function APB:RequestCodexPage(topic, page)
+    topic, page = tonumber(topic), tonumber(page)
+    if not topic or not page then return false end
+    topic, page = math.floor(topic), math.floor(page)
+
+    local state = self.echoes.codexPage
+    state.desiredTopic, state.desiredPage = topic, page
+
+    if state.scheduled then return true end -- the pending send will pick up this newer desire
+
+    local function send()
+        state.scheduled = false
+        state.lastSendTime = GetTime()
+        state.sentTopic, state.sentPage = state.desiredTopic, state.desiredPage
+        SendChatMessage("#ap codex page " .. state.desiredTopic .. " " .. state.desiredPage, "SAY")
+    end
+
+    local elapsed = GetTime() - (state.lastSendTime or -10)
+    local delay = math.max(0, 1.2 - elapsed) -- safely above the server's ~1s (integer-second) window
+    if delay > 0 then
+        state.scheduled = true
+        C_Timer.After(delay, send)
+    else
+        send()
+    end
+    return true
+end
+
+function APB:SearchCodex(query)
+    query = tostring(query or ""):gsub("^%s+", ""):gsub("%s+$", "")
+    if #query < 2 or #query > 80 then return false end
+    SendChatMessage("#ap codex search " .. EncodeCodexText(query), "SAY")
+    return true
+end
+
+local function NotifyEchoesAction(verb, fields)
+    for _, callback in pairs(APB.echoes.actionSubscribers) do
+        pcall(callback, verb, fields)
+    end
+end
+
+-- Handles every "[ECHOES]..." response. Registered as an additional
+-- CHAT_MSG_SYSTEM filter alongside the existing [APTIP] handler above -
+-- WoW chains multiple filters on the same event, each gets a look, so
+-- this is fully independent of (and does not risk regressing) the
+-- tooltip bridge's own filter.
+local function HandleEchoesMessage(self, event, msg, ...)
+    if not msg then return false end
+    if not msg:find("[ECHOES]", 1, true) then return false end
+
+    local verb, fields = ParseEchoesPayload(msg)
+    if not verb then return true end -- still suppress unparseable [ECHOES] noise
+
+    if verb == "WELCOME" then
+        APB.echoes.welcomed        = true
+        APB.echoes.serverVersion   = fields.server_version
+        APB.echoes.protocolVersion = tonumber(fields.protocol_version)
+        APB.echoes.compatible      = tonumber(fields.compatible)
+        APB.echoes.caps = {}
+        if fields.caps then
+            for cap in fields.caps:gmatch("[^,]+") do
+                APB.echoes.caps[cap] = true
+            end
+        end
+        EchoesLog("WELCOME: server_version=" .. tostring(fields.server_version) ..
+            " protocol_version=" .. tostring(fields.protocol_version) ..
+            " compatible=" .. tostring(fields.compatible))
+        if APB.echoes.compatible == 0 then
+            print("|cffffaa00[Echoes]|r This server's protocol (v" .. tostring(fields.protocol_version) ..
+                ") doesn't match this AddOn's (v" .. ECHOES_PROTOCOL_VERSION ..
+                "). Structured features may be unavailable; the normal gossip menu still works.")
+        end
+
+    elseif verb == "STATE" then
+        APB.echoes.lastState = fields
+        APB.echoes.lastStateTime = GetTime()
+        -- EchoesUI consumes the already-parsed E2J15 map. The Bridge remains
+        -- the sole protocol/parser authority and continues normally if the
+        -- opt-in native frontend is absent or fails to initialize.
+        if EchoesUI and EchoesUI.SafeCall and EchoesUI.StateStore and EchoesUI.StateStore.Ingest then
+            EchoesUI:SafeCall("StateStore ingest", EchoesUI.StateStore.Ingest,
+                EchoesUI.StateStore, fields, APB.echoes.lastStateTime)
+        end
+        EchoesLog("STATE received: essence=" .. tostring(fields.essence) ..
+            " mastery_rank=" .. tostring(fields.mastery_rank) ..
+            " residue=" .. tostring(fields.residue))
+
+    elseif verb == "ACTION_OK" then
+        NotifyEchoesAction(verb, fields)
+        EchoesLog("ACTION_OK: action=" .. tostring(fields.action) .. " status=" .. tostring(fields.status))
+
+    elseif verb == "ERROR" then
+        NotifyEchoesAction(verb, fields)
+        NotifyCodex(verb, fields)
+        EchoesLog("ERROR: code=" .. tostring(fields.code) .. " message=" .. tostring(fields.message))
+    elseif verb == "CODEX_TOPIC" or verb == "CODEX_PAGE" or verb == "CODEX_RESULT" or verb == "CODEX_DONE" then
+        if fields.title then fields.title = DecodeCodexText(fields.title) end
+        if fields.body then fields.body = DecodeCodexText(fields.body) end
+        if fields.excerpt then fields.excerpt = DecodeCodexText(fields.excerpt) end
+        if verb == "CODEX_TOPIC" and fields.topic then
+            APB.echoes.codexTopics[tonumber(fields.topic)] = fields
+        end
+        NotifyCodex(verb, fields)
+        EchoesLog(verb .. ": topic=" .. tostring(fields.topic) .. " page=" .. tostring(fields.page))
+    end
+
+    return true -- always suppress raw [ECHOES] protocol text from chat
+end
+
+ChatFrame_AddMessageEventFilter("CHAT_MSG_SYSTEM", HandleEchoesMessage)
 
 -- Suppress "Accepting Whisper: ON" or similar system acknowledgements
 -- that some server builds emit when a whisper is processed.
@@ -380,12 +787,12 @@ ChatFrame_AddMessageEventFilter("CHAT_MSG_SYSTEM", function(self, event, msg, ..
 end)
 
 -- ============================================================
--- SLASH COMMAND — /apb
+-- SLASH COMMAND â€” /apb
 -- Debugging and manual control.
---   /apb status        — print current state
---   /apb test <entry>  — manually send a tip request for an item entry
---   /apb clear         — wipe the cache
---   /apb dump          — dump the raw cache contents
+--   /apb status        â€” print current state
+--   /apb test <entry>  â€” manually send a tip request for an item entry
+--   /apb clear         â€” wipe the cache
+--   /apb dump          â€” dump the raw cache contents
 -- ============================================================
 SLASH_APBRIDGE1 = "/apb"
 SlashCmdList["APBRIDGE"] = function(input)
@@ -407,6 +814,10 @@ SlashCmdList["APBRIDGE"] = function(input)
             print("|cffff4444[EotW]|r Usage: /apb test <itemEntry>")
             return
         end
+        if IsAttunementRequestExcluded(entry) then
+            print("|cffff4444[EotW]|r Echo Fragment and Worldsoul Residue are not Attunement items.")
+            return
+        end
         print("|cff9966ff[EotW]|r Sending tip request for entry " .. entry .. "...")
         APB.pendingEntry = entry
         APB.pendingTime  = GetTime()
@@ -425,8 +836,43 @@ SlashCmdList["APBRIDGE"] = function(input)
         end
         if n == 0 then print("|cff9966ff[EotW]|r Cache is empty.") end
 
+    elseif cmd == "hello" then
+        APB.debugProtocol = true
+        print("|cff66ccff[Echoes]|r Sending HELLO (protocol " .. ECHOES_PROTOCOL_VERSION .. ")...")
+        APB.echoes.helloSent = false -- explicit debug re-send, bypasses the one-shot login guard
+        SendHello()
+
+    elseif cmd == "state" then
+        APB.debugProtocol = true
+        if not APB.echoes.welcomed then
+            print("|cffffaa00[Echoes]|r No WELCOME received yet this session - requesting state anyway.")
+        end
+        RequestEchoesState()
+
+    elseif cmd == "action" then
+        APB.debugProtocol = true
+        local name = arg ~= "" and arg or "preview_catalyst"
+        print("|cff66ccff[Echoes]|r Requesting action: " .. name)
+        RequestEchoesAction(name)
+
+    elseif cmd == "protocol" then
+        print("|cff66ccff[Echoes]|r welcomed=" .. tostring(APB.echoes.welcomed) ..
+            " server_version=" .. tostring(APB.echoes.serverVersion) ..
+            " protocol_version=" .. tostring(APB.echoes.protocolVersion) ..
+            " compatible=" .. tostring(APB.echoes.compatible))
+        local capList = {}
+        for cap in pairs(APB.echoes.caps) do capList[#capList + 1] = cap end
+        print("|cff66ccff[Echoes]|r caps=" .. table.concat(capList, ","))
+        if APB.echoes.lastState then
+            print("|cff66ccff[Echoes]|r last STATE (age " ..
+                string.format("%.1f", GetTime() - (APB.echoes.lastStateTime or 0)) .. "s):")
+            for k, v in pairs(APB.echoes.lastState) do
+                print("  " .. k .. " = " .. tostring(v))
+            end
+        end
+
     else
-        print("|cff9966ff[EotW]|r Commands: /apb status | /apb test <entry> | /apb clear | /apb dump")
+        print("|cff9966ff[EotW]|r Commands: /apb status | /apb test <entry> | /apb clear | /apb dump | /apb hello | /apb state | /apb action [name] | /apb protocol")
     end
 end
 -- ============================================================
@@ -582,6 +1028,9 @@ initFrame:SetScript("OnEvent", function(self, event, arg1)
             AttunementPlusBridgeDB.cache = {}
         end
         DB = AttunementPlusBridgeDB
+        -- SavedVariables persist across sessions, but GetTime() restarts on
+        -- login. Reusing old timestamps can make stale tooltip data look fresh.
+        DB.cache = {}
 
     elseif event == "PLAYER_LOGIN" then
         APB.playerName = UnitName("player")
@@ -589,15 +1038,24 @@ initFrame:SetScript("OnEvent", function(self, event, arg1)
         self:UnregisterEvent("PLAYER_LOGIN")
 
         -- Report AddOn version to the server for compatibility checking.
-        -- GetAddOnMetadata reads from this .toc's ## Version field — no
+        -- GetAddOnMetadata reads from this .toc's ## Version field â€” no
         -- separate version constant to keep in sync.
-        -- Sent as a whisper-to-self (same silent channel as #ap tip requests)
-        -- after a short delay to ensure the player is fully in-world.
+        -- Sent through the same server-consumed SAY control channel as tooltip
+        -- requests after a short delay to ensure the player is fully in-world.
         local addonVer = GetAddOnMetadata("EchoesOfTheWorldsoulBridge", "Version") or "unknown"
         C_Timer.After(2, function()
             local pname = UnitName("player")
             if pname then
-                SendChatMessage("#ap clientversion " .. addonVer, "WHISPER", nil, pname)
+                SendChatMessage("#ap clientversion " .. addonVer, "SAY")
+            end
+        end)
+
+        -- E2j15: one-shot, bounded protocol handshake. Sent slightly after
+        -- clientversion (2.5s vs 2s) to avoid bunching two SAY sends in the
+        -- same frame; never retried this session (see APB.echoes.helloSent).
+        C_Timer.After(2.5, function()
+            if UnitName("player") then
+                SendHello()
             end
         end)
 
@@ -752,23 +1210,13 @@ SlashCmdList["EOTW"] = function(msg)
 end
 
 -- ============================================================
--- XP GAIN — BUST CACHE FOR EQUIPPED ITEMS
--- When the player gains XP, their equipped items' attunement
--- progress has changed on the server. Wipe those cache entries
--- so the next hover fetches fresh data immediately.
+-- ATTUNEMENT PROGRESS - BUST CACHE FOR EQUIPPED ITEMS
+-- Server-side attunement can change after kills even when the client does not
+-- fire PLAYER_XP_GAINED, so also clear equipped-item cache when combat ends.
 -- ============================================================
-local xpFrame = CreateFrame("Frame")
-xpFrame:RegisterEvent("PLAYER_XP_GAINED")
-xpFrame:SetScript("OnEvent", function(self, event)
-    APB.pendingEntry = nil
-    APB.pendingTime  = 0
-    for slot = 0, 18 do
-        local itemLink = GetInventoryItemLink("player", slot + 1)
-        if itemLink then
-            local itemId = tonumber(itemLink:match("item:(%d+)"))
-            if itemId then
-                DB.cache[itemId] = nil
-            end
-        end
-    end
+local invalidateFrame = CreateFrame("Frame")
+invalidateFrame:RegisterEvent("PLAYER_XP_GAINED")
+invalidateFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+invalidateFrame:SetScript("OnEvent", function(self, event)
+    ClearEquippedTooltipCache()
 end)
