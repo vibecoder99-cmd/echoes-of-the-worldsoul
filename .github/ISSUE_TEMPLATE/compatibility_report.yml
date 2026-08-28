@@ -1,7 +1,7 @@
 name: Compatibility Report
 description: Report install results, compatibility issues, or environment-specific problems for Echoes of the Worldsoul.
 title: "[Compatibility]: "
-labels: ["compatibility", "v1.6.0-rc1"]
+labels: ["compatibility"]
 body:
   - type: markdown
     attributes:
@@ -14,8 +14,8 @@ body:
     id: echoes-version
     attributes:
       label: Echoes version
-      description: "Example: v1.6.0-rc1"
-      placeholder: v1.6.0-rc1
+      description: "The release tag you installed, or the commit hash if built from source."
+      placeholder: "Example: v1.6.0-rc1, or a commit hash"
     validations:
       required: true
 

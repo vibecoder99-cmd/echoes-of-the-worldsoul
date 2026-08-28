@@ -1,7 +1,7 @@
 name: Balance / Design Feedback
 description: Share progression pacing, World Threat, Rack, Forge, Crucible, or Visage feedback.
 title: "[Feedback]: "
-labels: ["feedback", "balance", "v1.6.0-rc1"]
+labels: ["feedback", "balance"]
 body:
   - type: markdown
     attributes:
@@ -14,7 +14,7 @@ body:
     id: echoes-version
     attributes:
       label: Echoes version
-      placeholder: v1.6.0-rc1
+      placeholder: "Example: v1.6.0-rc1, or the commit hash you're running"
     validations:
       required: true
 
