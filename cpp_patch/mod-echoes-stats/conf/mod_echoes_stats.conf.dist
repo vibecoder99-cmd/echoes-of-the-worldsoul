@@ -1,0 +1,56 @@
+[worldserver]
+
+###################################################################################################
+# mod-echoes-stats CONFIGURATION
+#
+# Standalone, Playerbots-independent engine-level stat application module for Echoes of the
+# Worldsoul. Applies identically to human players and bots. Has no dependency on
+# mod-echoes-playerbots or mod-playerbots.
+#
+# This module is the actual application layer for every Echoes stat/effect: base stat absorption,
+# armor and attack-power conversion, combat ratings (crit/haste/dodge/parry), melee_power/
+# spell_power, execute_power/armor_pen, life_leech, reflect_chance, spell_mitigation, and
+# Fortitude. Without it, attuned-item stat absorption and every Crucible investment payoff
+# described in README.md have no effect on any player -- this is production-required, not
+# optional, for Echoes' advertised gameplay to function as documented.
+#
+# (Earlier revisions of this file carried an "ISOLATED VALIDATION ONLY, not authorized for
+# production" notice from this module's original E2j3 milestone. That was accurate for E2j3 itself
+# but became stale as of the E2j5a/E2j6/E2j7a/E2j7b/E2j7c/E2j8 phases, which extended this module
+# to its current scope and put it into live use. Corrected here to describe current status.)
+###################################################################################################
+
+#
+#   EchoesStats.Enable
+#       Description: Master enable switch. Production-required -- disabling this module silently
+#                     disables every Echoes stat/Crucible effect while leaving the Lua-side
+#                     currency/investment bookkeeping (Essence, Residue, ap_aether_sinks, etc.)
+#                     running normally, which is a confusing half-working state. Leave enabled
+#                     unless you have a specific reason to run Echoes without stat effects.
+#       Default:    1 - (enabled)
+#
+EchoesStats.Enable = 1
+
+#
+#   EchoesStats.MasteryBaseAbsorb
+#       Description: Base absorption percent at Mastery rank 0. Must match ap_core.lua's
+#                     MasteryBaseAbsorb exactly - this is not an independent tuning value.
+#       Default:    0.05
+#
+EchoesStats.MasteryBaseAbsorb = 0.05
+
+#
+#   EchoesStats.MasteryMaxAbsorb
+#       Description: Maximum additional absorption percent as Mastery rank approaches infinity.
+#                     Must match ap_core.lua's MasteryMaxAbsorb exactly.
+#       Default:    0.80
+#
+EchoesStats.MasteryMaxAbsorb = 0.80
+
+#
+#   EchoesStats.MasteryDecayK
+#       Description: Exponential decay constant controlling how quickly absorption approaches its
+#                     max as Mastery rank increases. Must match ap_core.lua's MasteryDecayK exactly.
+#       Default:    0.038
+#
+EchoesStats.MasteryDecayK = 0.038

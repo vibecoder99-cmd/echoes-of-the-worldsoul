@@ -1,0 +1,124 @@
+[worldserver]
+
+###################################################################################################
+# mod-echoes-playerbots CONFIGURATION
+#
+# Optional, fail-dormant Layer 1 (Awareness) + Layer 2 prototype (Retention) integration between
+# Echoes of the Worldsoul and mod-playerbots. See cpp_patch/mod-echoes-playerbots/README.md for
+# the full design contract.
+#
+# This module is safe to build and ship regardless of whether mod-playerbots is present in your
+# modules/ tree: every Playerbots symbol/header it uses is guarded by #ifdef MOD_PLAYERBOTS, so it
+# compiles to an inert no-op when Playerbots is absent. Public-release default is disabled
+# (EchoesPlayerbots.Enable = 0) -- a server owner running Playerbots should enable it explicitly
+# after confirming compatibility; a future installer may do this automatically once it detects a
+# compatible Playerbots install.
+#
+# Disabled by default. When disabled, or when Playerbots or a compatible Echoes runtime is not
+# present, this module performs zero recurring database queries and has zero effect on any
+# player, human or bot.
+###################################################################################################
+
+#
+#   EchoesPlayerbots.Enable
+#       Description: Master enable switch (Layer 1). Must be explicitly turned on.
+#       Default:    0 - (disabled)
+#
+EchoesPlayerbots.Enable = 0
+
+#
+#   EchoesPlayerbots.MeaningfulAttunementPct
+#       Description: Attunement percent (1-99) at or above which a bot's currently equipped item is
+#                     considered worth protecting from a merely marginal upgrade.
+#       Default:    25
+#
+EchoesPlayerbots.MeaningfulAttunementPct = 25
+
+#
+#   EchoesPlayerbots.ClearUpgradeMarginPct
+#       Description: An upgrade at or above this percent improvement is always accepted regardless
+#                     of attunement - this module never blocks a clear/role-critical upgrade.
+#       Default:    15
+#
+EchoesPlayerbots.ClearUpgradeMarginPct = 15
+
+#
+#   EchoesPlayerbots.PresenceRecheckMinutes
+#       Description: How often (minutes) the module re-checks Echoes schema/version presence while
+#                     ACTIVE/DEGRADED. Single global check, never per-bot.
+#       Default:    10
+#
+EchoesPlayerbots.PresenceRecheckMinutes = 10
+
+#
+#   EchoesPlayerbots.CompatibleVersionPrefix
+#       Description: Prefix-matched against the live ap_schema_version.version value (see
+#                     sql/schema/40_seed_or_defaults.sql). Not the Client Companion compatibility
+#                     gate (that's AP.CLIENT_ADDON_VERSION, a separate axis) and not the public
+#                     release version. Update this whenever the shipped schema version changes in
+#                     a way that should gate this integration -- it is deliberately configurable
+#                     per-install rather than hardcoded, so an operator running a patched/forked
+#                     schema can adjust it without a rebuild.
+#       Default:    "1.7."
+#
+EchoesPlayerbots.CompatibleVersionPrefix = "1.7."
+
+###################################################################################################
+# Layer 2 prototype (E2i4) - KEEP_IN_BAG / PROTECT_FROM_DISPOSITION only.
+# No Rack/Dissolve/Forge/economy/dialogue behavior exists in this module. Independent of Layer 1's
+# enable switch above - Layer 1 continues to function unchanged regardless of this setting.
+###################################################################################################
+
+#
+#   EchoesPlayerbots.Layer2.Enable
+#       Description: Master Layer 2 switch. Prototype only - not intended for permanent production
+#                     use until a future phase authorizes it.
+#       Default:    0 - (disabled)
+#
+EchoesPlayerbots.Layer2.Enable = 0
+
+#
+#   EchoesPlayerbots.Layer2.MinAttunementForRetention
+#       Description: Attunement percent (1-99) at or above which a formerly-equipped item is
+#                     considered worth protecting from disposal (sale).
+#       Default:    25
+#
+EchoesPlayerbots.Layer2.MinAttunementForRetention = 25
+
+#
+#   EchoesPlayerbots.Layer2.MaxProtectedItemsPerBot
+#       Description: Hard cap on how many unequipped items a single bot may have protected from
+#                     disposal at once. Never unlimited.
+#       Default:    3
+#
+EchoesPlayerbots.Layer2.MaxProtectedItemsPerBot = 3
+
+#
+#   EchoesPlayerbots.Layer2.BagFreeSlotReserve
+#       Description: Free-bag-slot threshold at or below which protection is released
+#                     (least-attuned protected item first) rather than blocking inventory cleanup.
+#       Default:    2
+#
+EchoesPlayerbots.Layer2.BagFreeSlotReserve = 2
+
+###################################################################################################
+# E2i6 prototype - Echoes-owned action bridge (Rack/Dissolve/Forge)
+# Rack is executable. Dissolve is dry-run only regardless of this flag (see EchoesDissolveAdapter).
+# Forge is permanently inert - no upgrade/crafting mutation exists in Echoes to bridge to.
+###################################################################################################
+
+EchoesPlayerbots.Bridge.Enable = 0
+EchoesPlayerbots.Bridge.Rack.Enable = 0
+EchoesPlayerbots.Bridge.Dissolve.Enable = 0
+EchoesPlayerbots.Bridge.Forge.Enable = 0
+
+#
+#   EchoesPlayerbots.Progression.Residue.Enable
+#       Description: E2j10 gate for autonomous account-level Worldsoul Residue
+#                    spending through the shared Rack/Catalyst services. Requires
+#                    Progression.Spending.Enable and the existing bounded scheduler.
+#                    Rack tiers are preferred; a pending unaffordable Residue Rack
+#                    tier reserves its balance instead of converting it. Default OFF.
+#       Default:    0 - (disabled)
+#
+EchoesPlayerbots.Progression.Residue.Enable = 0
