@@ -343,3 +343,50 @@ None at P0/P1. DEFECT-01 and DEFECT-02 (both P2, both specific to the
 are fixed and verified by a durable regression test this pass. No open
 P2/P1/P0 defects remain. DEFECT-03 (P3, cosmetic unused import) remains
 open by design — non-blocking.
+
+---
+
+## Final Live Certification Pass — client environment authority and evidence status
+
+**Client authority (per explicit project direction, not independently
+derivable from this session's filesystem inspection alone):**
+
+- **`C:\Dad's MMO Lab Test WoW Client\`** — the authoritative current DML
+  target used for current Echoes compatibility/live validation.
+- **`C:\AzerothCore Client\`** — historical/alternate client, **non-
+  authoritative for current DML certification**. Its exact historical
+  origin/lineage is not independently proven by this session and is not
+  claimed here. Both clients were observed (read-only) to currently carry
+  byte-identical `patch-4.MPQ` file sizes and the `EchoesOfTheWorldsoulBridge`
+  AddOn; per project direction, this shared content does not make the two
+  clients equal authorities for certification purposes.
+
+**Existing `Data\patch-4.MPQ` on the authoritative DML client:** confirmed
+genuinely Echoes-owned. SHA-256
+`2a9c38e589226d7c3ff84ef218e4a2d001801fcc9cf0e9252e6652ddcbc8bb4c`,
+positively identified via `installer/core/mpq_conflict.py`'s
+`identify_legacy_echoes_patch4()` — byte-exact match on both custom item
+records (900010, 900011), confirmed against this real production file, not
+only synthetic test fixtures. Safe for the installer's legacy-migration path
+to convert to `patch-E.MPQ`.
+
+**FORGE LIVE TEST:**
+- Status: **USER-REPORTED LIVE PASS**
+- Exact total/pass/fail counts: **not captured in this session**
+- Independently witnessed by this Claude session: **NO**
+- This is recorded as a user-reported result, not a session-verified one.
+  It is not treated as an open/unknown functional defect for current
+  certification scope, per explicit project direction. If exact evidence
+  is needed for a future audit, rerun `#aptest forge` and capture the
+  output.
+
+**Certification scope narrowed** (per explicit project direction) to:
+installer/package output reproducing the known-good current DML state;
+package-equivalent server build/start; package-equivalent Client Companion
+behavior; patch-E migration/load validation against the authoritative DML
+client (using its already-verified-good existing `patch-4.MPQ` payload,
+not a from-scratch vanilla-client DBC rebuild); DML end-to-end
+install/verify; remaining live/package checks. The generic-AzerothCore
+claim is treated as already verified (clean PASS, see compile-matrix and
+installer sections above) and does not require re-litigating the alternate
+client's history as a release condition.
