@@ -24,9 +24,9 @@ AP = AP or {}
 --   PATCH: bug fixes, balance, text changes (no schema changes)
 --   MINOR: new features, new tables, backward-compatible additions
 --   MAJOR: breaking schema changes or removed features
--- The client AddOn's .toc ## Version must match this exactly.
+-- The server package version is independent of the client AddOn version.
 -- ============================================================
-AP.VERSION = "1.6.0"
+AP.VERSION = "1.7.1"
 
 -- ============================================================
 -- CAPABILITY FLAGS
@@ -44,6 +44,9 @@ AP.Cap = AP.Cap or {
 -- All tuning lives here. Edit these values to adjust difficulty.
 -- ============================================================
 AP.Config = {
+
+    -- Staged DML/ALE production target identity (non-gameplay setting).
+    DMLMode = true,
 
     -- XP-based attunement (Synastria design)
     -- Progress per item = (XP earned / equippedCount) * XpToAttune * rarityMult
@@ -131,9 +134,9 @@ AP.Config = {
 
     -- Talent ranks
     TalentPrimaryRanks   = 3,
-    TalentPrimaryBonus   = 0.12,   -- +12% cap per rank
+    TalentPrimaryBonus   = 0.12,   -- +12% amplifier per rank
     TalentSecondaryRanks = 2,
-    TalentSecondaryBonus = 0.08,   -- +8% cap per rank
+    TalentSecondaryBonus = 0.08,   -- +8% amplifier per rank
     TalentDistinctPenalty = 0.85,  -- per additional distinct stat beyond first
 
     -- Slot specialization
@@ -248,11 +251,7 @@ end
 -- GM CHECK (compatibility-safe)
 -- ============================================================
 function AP.IsGM(player)
-    local ok, result = pcall(function()
-        if player.IsGM then return player:IsGM() end
-        return false
-    end)
-    return ok and result == true
+    return AP.RT.IsGM(player, 1)
 end
 
 -- ============================================================
@@ -341,214 +340,16 @@ function AP.Try(fn, label)
 end
 
 -- ============================================================
--- DATABASE BOOTSTRAP
--- Two-phase approach:
---   Phase 1: CREATE TABLE IF NOT EXISTS — safe for new installs.
---   Phase 2: ALTER TABLE ADD COLUMN IF NOT EXISTS — safe for
---            existing installs that are missing columns from
---            older versions of this code.
--- Neither phase touches existing data.
+-- DATABASE READINESS
+-- Metadata-only validation. Schema installation and migration belong to the
+-- separately authorized database package and never execute from runtime Lua.
 -- ============================================================
 function AP.InitDB()
-
-    -- Phase 1: Create tables
-    local tables = {
-        {
-            name = "ap_item_attune",
-            sql  = [[
-                CREATE TABLE IF NOT EXISTS `ap_item_attune` (
-                    `guid`       INT UNSIGNED NOT NULL,
-                    `item_entry` INT UNSIGNED NOT NULL,
-                    `progress`   INT UNSIGNED NOT NULL DEFAULT 0,
-                    `attuned`    TINYINT(1)   NOT NULL DEFAULT 0,
-                    PRIMARY KEY (`guid`, `item_entry`)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
-            ]],
-        },
-        {
-            name = "ap_item_snapshot",
-            sql  = [[
-                CREATE TABLE IF NOT EXISTS `ap_item_snapshot` (
-                    `guid`       INT UNSIGNED     NOT NULL,
-                    `item_entry` INT UNSIGNED     NOT NULL,
-                    `quality`    TINYINT UNSIGNED NOT NULL DEFAULT 1,
-                    `str`        FLOAT            NOT NULL DEFAULT 0,
-                    `agi`        FLOAT            NOT NULL DEFAULT 0,
-                    `sta`        FLOAT            NOT NULL DEFAULT 0,
-                    `int`        FLOAT            NOT NULL DEFAULT 0,
-                    `spi`        FLOAT            NOT NULL DEFAULT 0,
-                    `armor`      FLOAT            NOT NULL DEFAULT 0,
-                    `weapon_dps` FLOAT            NOT NULL DEFAULT 0,
-                    PRIMARY KEY (`guid`, `item_entry`)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
-            ]],
-        },
-        {
-            name = "ap_mastery",
-            sql  = [[
-                CREATE TABLE IF NOT EXISTS `ap_mastery` (
-                    `guid`    INT UNSIGNED    NOT NULL,
-                    `aether`  BIGINT UNSIGNED NOT NULL DEFAULT 0,
-                    `mastery` INT UNSIGNED    NOT NULL DEFAULT 0,
-                    PRIMARY KEY (`guid`)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
-            ]],
-        },
-        {
-            name = "ap_mastery_spend",
-            sql  = [[
-                CREATE TABLE IF NOT EXISTS `ap_mastery_spend` (
-                    `id`     INT UNSIGNED NOT NULL AUTO_INCREMENT,
-                    `guid`   INT UNSIGNED NOT NULL,
-                    `amount` INT UNSIGNED NOT NULL DEFAULT 0,
-                    `ts`     TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (`id`),
-                    KEY `idx_guid` (`guid`)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
-            ]],
-        },
-        {
-            name = "ap_slot_mastery",
-            sql  = [[
-                CREATE TABLE IF NOT EXISTS `ap_slot_mastery` (
-                    `guid` INT UNSIGNED     NOT NULL,
-                    `slot` TINYINT UNSIGNED NOT NULL,
-                    `xp`   BIGINT UNSIGNED  NOT NULL DEFAULT 0,
-                    PRIMARY KEY (`guid`, `slot`)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
-            ]],
-        },
-        {
-            name = "ap_talents",
-            sql  = [[
-                CREATE TABLE IF NOT EXISTS `ap_talents` (
-                    `guid`       INT UNSIGNED     NOT NULL,
-                    `stat_index` TINYINT UNSIGNED NOT NULL,
-                    `rank`       TINYINT UNSIGNED NOT NULL DEFAULT 0,
-                    PRIMARY KEY (`guid`, `stat_index`)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
-            ]],
-        },
-        {
-            name = "ap_quest_rewarded",
-            sql  = [[
-                CREATE TABLE IF NOT EXISTS `ap_quest_rewarded` (
-                    `guid`     INT UNSIGNED NOT NULL,
-                    `quest_id` INT UNSIGNED NOT NULL,
-                    PRIMARY KEY (`guid`, `quest_id`)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
-            ]],
-        },
-        {
-            name = "ap_milestone_defs",
-            sql  = [[
-                CREATE TABLE IF NOT EXISTS `ap_milestone_defs` (
-                    `id`            INT UNSIGNED NOT NULL,
-                    `label`         VARCHAR(64)  NOT NULL DEFAULT '',
-                    `aether_reward` INT UNSIGNED NOT NULL DEFAULT 50,
-                    PRIMARY KEY (`id`)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
-            ]],
-        },
-        {
-            name = "ap_milestones",
-            sql  = [[
-                CREATE TABLE IF NOT EXISTS `ap_milestones` (
-                    `guid`         INT UNSIGNED NOT NULL,
-                    `milestone_id` INT UNSIGNED NOT NULL,
-                    `ts`           TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (`guid`, `milestone_id`)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
-            ]],
-        },
-        {
-            name = "ap_aether_milestones",
-            sql  = [[
-                CREATE TABLE IF NOT EXISTS `ap_aether_milestones` (
-                    `account_id`     INT UNSIGNED NOT NULL,
-                    `milestone_type` VARCHAR(32)  NOT NULL,
-                    `milestone_id`   INT UNSIGNED NOT NULL,
-                    PRIMARY KEY (`account_id`, `milestone_type`, `milestone_id`)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
-            ]],
-        },
-        {
-            name = "ap_telemetry",
-            sql  = [[
-                CREATE TABLE IF NOT EXISTS `ap_telemetry` (
-                    `id`    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-                    `guid`  INT UNSIGNED    NOT NULL,
-                    `event` VARCHAR(32)     NOT NULL DEFAULT '',
-                    `value` FLOAT           NOT NULL DEFAULT 0,
-                    `ts`    TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (`id`),
-                    KEY `idx_guid_event` (`guid`, `event`)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
-            ]],
-        },
-        {
-            name = "ap_session_state",
-            sql  = [[
-                CREATE TABLE IF NOT EXISTS `ap_session_state` (
-                    `guid`        INT UNSIGNED NOT NULL,
-                    `clean_exit`  TINYINT(1)   NOT NULL DEFAULT 0,
-                    `last_update` TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
-                                  ON UPDATE CURRENT_TIMESTAMP,
-                    PRIMARY KEY (`guid`)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
-            ]],
-        },
-    }
-
-    for _, t in ipairs(tables) do
-        AP.Try(function()
-            CharDBExecute(t.sql)
-        end, "CREATE TABLE " .. t.name)
+    if AP.DB and AP.DB.ValidateSchema then
+        return AP.DB.ValidateSchema()
     end
-
-    -- Phase 2: Add missing columns to tables created by older versions.
-    -- MySQL 5.7 / MariaDB 10.x do not support ADD COLUMN IF NOT EXISTS,
-    -- so we check information_schema first and only ALTER if needed.
-    local function addColumnIfMissing(tblName, colName, colDef)
-        AP.Try(function()
-            local q = CharDBQuery(string.format([[
-                SELECT COUNT(*) FROM information_schema.COLUMNS
-                WHERE TABLE_SCHEMA = DATABASE()
-                  AND TABLE_NAME   = '%s'
-                  AND COLUMN_NAME  = '%s';
-            ]], tblName, colName))
-            local exists = q and ((tonumber(q:GetUInt32(0)) or 0) > 0)
-            if not exists then
-                -- Use CharDBQuery (sync) not CharDBExecute (async) so the
-                -- ALTER TABLE completes before any subsequent INSERT/SELECT
-                CharDBQuery(string.format(
-                    "ALTER TABLE `%s` ADD COLUMN `%s` %s;",
-                    tblName, colName, colDef))
-                AP.Log("Schema: added column " .. tblName .. "." .. colName)
-            end
-        end, "addColumnIfMissing " .. tblName .. "." .. colName)
-    end
-
-    addColumnIfMissing("ap_item_attune",   "attuned", "TINYINT(1) NOT NULL DEFAULT 0")
-    addColumnIfMissing("ap_item_snapshot", "quality",  "TINYINT UNSIGNED NOT NULL DEFAULT 1")
-    addColumnIfMissing("ap_item_snapshot", "str",      "FLOAT NOT NULL DEFAULT 0")
-    addColumnIfMissing("ap_item_snapshot", "agi",      "FLOAT NOT NULL DEFAULT 0")
-    addColumnIfMissing("ap_item_snapshot", "sta",      "FLOAT NOT NULL DEFAULT 0")
-    addColumnIfMissing("ap_item_snapshot", "int",      "FLOAT NOT NULL DEFAULT 0")
-    addColumnIfMissing("ap_item_snapshot", "spi",      "FLOAT NOT NULL DEFAULT 0")
-    addColumnIfMissing("ap_item_snapshot", "armor",      "FLOAT NOT NULL DEFAULT 0")
-    addColumnIfMissing("ap_item_snapshot", "weapon_dps", "FLOAT NOT NULL DEFAULT 0")
-    addColumnIfMissing("ap_mastery",       "aether",   "BIGINT UNSIGNED NOT NULL DEFAULT 0")
-    addColumnIfMissing("ap_mastery",       "mastery",  "INT UNSIGNED NOT NULL DEFAULT 0")
-    addColumnIfMissing("ap_slot_mastery",  "xp",       "BIGINT UNSIGNED NOT NULL DEFAULT 0")
-
-    -- Commit any implicit read transaction opened by the information_schema
-    -- queries above. Without this, InnoDB REPEATABLE READ isolation keeps a
-    -- stale snapshot on the sync connection that makes subsequent INSERTs
-    -- invisible to the same connection's SELECT statements.
-    CharDBQuery("COMMIT;")
-
-    AP.Log("Database schema verified and up to date.")
+    AP.Warn("Schema readiness validation unavailable; Echoes gameplay remains disabled.")
+    return false
 end
 
 -- ============================================================
@@ -608,11 +409,11 @@ end
 function AP.LoadMastery(guid)
     local result = nil
     AP.Try(function()
-        local q = CharDBQuery(string.format(
+        local q = AP.DB.Query(string.format(
             "SELECT `aether`, `mastery` FROM `ap_mastery` WHERE `guid` = %d LIMIT 1;", guid))
         if q then
             result = {
-                aether  = tonumber(tostring(q:GetUInt64(0))) or 0,
+                aether  = AP.DB.GetUInt64(q, 0),
                 mastery = tonumber(q:GetUInt32(1)) or 0,
             }
         else
@@ -622,26 +423,95 @@ function AP.LoadMastery(guid)
     return result
 end
 
+AP.Mastery = AP.Mastery or {}
+
+-- ============================================================
+-- MASTERY PURCHASE SERVICE (E2j5)
+-- Narrow, reusable Echoes-owned service for advancing Mastery rank by
+-- exactly one. Callable by both the human gossip menu (ap_ui.lua) and an
+-- authorized bot caller (AP.API.ExecuteMasteryPurchase in ap_botapi.lua) -
+-- there is exactly one Mastery purchase implementation, not two divergent
+-- copies. Reuses AP.LoadMastery/AP.MasteryCost exactly as-is - never a
+-- second cost formula, never a rank ceiling (AP.MasteryCost is uncapped by
+-- design; this service never clamps or rejects based on rank alone).
+--
+-- Returns a structured status table:
+--   { status = "SUCCESS" | "INSUFFICIENT_ESSENCE" | "INVALID_PLAYER" | "DATABASE_FAILURE",
+--     oldRank, newRank, cost, oldBalance, newBalance }
+-- On INSUFFICIENT_ESSENCE/DATABASE_FAILURE, no mutation occurs - oldRank/cost/oldBalance
+-- are still populated for caller diagnostics, newRank/newBalance are absent.
+function AP.Mastery.Purchase(player)
+    if not player or not AP.RT or not AP.RT.GetGUID then
+        return { status = "INVALID_PLAYER" }
+    end
+    local guid = AP.RT.GetGUID(player)
+    if not guid then
+        return { status = "INVALID_PLAYER" }
+    end
+
+    local rec     = AP.LoadMastery(guid)
+    local aether  = rec and rec.aether or 0
+    local mastery = rec and rec.mastery or 0
+    local cost    = AP.MasteryCost(mastery)
+
+    if aether < cost then
+        return { status = "INSUFFICIENT_ESSENCE", oldRank = mastery, cost = cost, oldBalance = aether }
+    end
+
+    local newAether  = aether - cost
+    local newMastery = mastery + 1
+
+    -- Single atomic UPSERT - identical shape to the pre-E2j5 inline human path in
+    -- ap_ui.lua. AP.DB.ExecuteCritical never silently degrades to async (see ap04_db.lua) -
+    -- if it returns false here, NOTHING was written, so returning DATABASE_FAILURE without
+    -- any further mutation is always safe and never leaves a partial state.
+    local writeOk = AP.DB.ExecuteCritical(string.format([[
+        INSERT INTO `ap_mastery` (`guid`, `aether`, `mastery`)
+        VALUES (%d, %d, %d)
+        ON DUPLICATE KEY UPDATE `aether` = %d, `mastery` = %d;
+    ]], guid, newAether, newMastery, newAether, newMastery), "AP.Mastery.Purchase")
+
+    if not writeOk then
+        return { status = "DATABASE_FAILURE", oldRank = mastery, cost = cost, oldBalance = aether }
+    end
+
+    -- Audit insert is best-effort: the purchase above already committed and remains
+    -- committed regardless of whether this succeeds - never rolled back, never retried
+    -- because of an audit failure.
+    AP.DB.ExecuteCritical(string.format(
+        "INSERT INTO `ap_mastery_spend` (`guid`, `amount`) VALUES (%d, %d);",
+        guid, cost), "AP.Mastery.Purchase.audit")
+
+    AP.Log("Mastery purchased: guid=" .. guid .. " rank=" .. newMastery)
+
+    return {
+        status = "SUCCESS",
+        oldRank = mastery,
+        newRank = newMastery,
+        cost = cost,
+        oldBalance = aether,
+        newBalance = newAether,
+    }
+end
+
 -- Grant Aether to a character GUID (integer amount).
 -- Uses INSERT IGNORE (ensure row) then UPDATE (add amount) pattern.
 -- This avoids doing a SELECT before the write, which would open
 -- a repeatable-read snapshot on the sync connection and prevent
 -- the subsequent SELECT in LoadMastery from seeing the new value.
--- NOTE (security audit): CharDBQuery is used here intentionally, not
--- CharDBExecute. Both connect to separate DB connections; this function
--- uses the sync connection, which runs with autocommit=1 in AzerothCore's
--- default configuration, making each statement immediately durable without
--- an explicit COMMIT. If ever ported to a core version that disables
--- autocommit on the sync connection, switch these to CharDBExecute+COMMIT.
+-- NOTE: AP.DB.Execute prefers CharDBDirectExecute (sync) so both statements
+-- commit before any subsequent SELECT (e.g. LoadMastery). On builds without
+-- CharDBDirectExecute, falls back to CharDBExecute (async FIFO queue);
+-- ordering is still preserved since INSERT is enqueued before UPDATE.
 function AP.GrantAether(guid, amount)
     if not guid or amount <= 0 then return end
     local ok, err = pcall(function()
         -- Ensure row exists without reading it first
-        CharDBQuery(string.format(
+        AP.DB.Execute(string.format(
             "INSERT IGNORE INTO `ap_mastery` (`guid`, `aether`, `mastery`) VALUES (%d, 0, 0);",
             guid))
         -- Add the amount in a separate statement (no snapshot open)
-        CharDBQuery(string.format(
+        AP.DB.Execute(string.format(
             "UPDATE `ap_mastery` SET `aether` = `aether` + %d WHERE `guid` = %d;",
             amount, guid))
     end)
@@ -655,7 +525,7 @@ end
 function AP.GetScaledCap(itemEntry)
     local cap = AP.Config.CapPerItem
     AP.Try(function()
-        local q = WorldDBQuery(string.format(
+        local q = AP.DB.WorldQuery(string.format(
             "SELECT `RequiredLevel` FROM `item_template` WHERE `entry` = %d LIMIT 1;",
             itemEntry))
         if q then
@@ -682,7 +552,7 @@ AP.StatNames = { [0]="STR", [1]="AGI", [2]="STA", [3]="INT", [4]="SPI" }
 function AP.LoadTalents(guid)
     local talents = {}
     AP.Try(function()
-        local q = CharDBQuery(string.format(
+        local q = AP.DB.Query(string.format(
             "SELECT `stat_index`, `rank` FROM `ap_talents` WHERE `guid` = %d;", guid))
         if q then
             repeat
@@ -697,12 +567,12 @@ end
 
 function AP.SaveTalent(guid, statIndex, rank)
     AP.Try(function()
-        CharDBQuery(string.format([[
+        AP.DB.Execute(string.format([[
             INSERT INTO `ap_talents` (`guid`, `stat_index`, `rank`)
             VALUES (%d, %d, %d)
             ON DUPLICATE KEY UPDATE `rank` = %d;
         ]], guid, statIndex, rank, rank))
-        CharDBQuery("COMMIT;")
+        AP.DB.Execute("COMMIT;")
     end, "AP.SaveTalent")
 end
 
@@ -716,39 +586,77 @@ function AP.TalentCost(currentRank, isPrimary)
     return math.floor(base * (3 ^ (nextRank - 1)))
 end
 
--- Returns the max rank allowed for a stat given how many stats
--- the player has already invested in.
--- First stat = primary (max 3 ranks), subsequent = secondary (max 2 ranks).
+-- Authoritative Talent role. The compiled mod-echoes-stats engine uses the
+-- highest invested rank and resolves ties to the lowest stat index. Keep the
+-- Lua state/purchase surface deterministic and aligned with that live engine.
+function AP.GetTalentPrimaryStat(talents)
+    local primary, highest = nil, 0
+    for statIndex = 0, 4 do
+        local rank = math.max(0, math.floor(tonumber(talents and talents[statIndex]) or 0))
+        if rank > highest then
+            primary, highest = statIndex, rank
+        end
+    end
+    return primary
+end
+
+-- Complete server-owned UI snapshot. The client receives results, never the
+-- rank/cost/role formula. With no investment there is no Primary, but the first
+-- rank bought in any anchor uses Primary cost/cap semantics.
+function AP.BuildTalentSnapshot(talents)
+    talents = talents or {}
+    local primary = AP.GetTalentPrimaryStat(talents)
+    local distinct = 0
+    for statIndex = 0, 4 do
+        if (tonumber(talents[statIndex]) or 0) > 0 then distinct = distinct + 1 end
+    end
+    local penalty = distinct <= 1 and 1.0
+        or (AP.Config.TalentDistinctPenalty ^ (distinct - 1))
+    local snapshot = { primary = primary, distinct = distinct, penalty = penalty, stats = {} }
+    for statIndex = 0, 4 do
+        local rank = math.max(0, math.floor(tonumber(talents[statIndex]) or 0))
+        local isPrimary = primary ~= nil and statIndex == primary
+        local purchasesAsPrimary = primary == nil or isPrimary
+        local maxRank = purchasesAsPrimary and AP.Config.TalentPrimaryRanks
+            or AP.Config.TalentSecondaryRanks
+        local perRank = isPrimary and AP.Config.TalentPrimaryBonus
+            or AP.Config.TalentSecondaryBonus
+        if primary == nil then perRank = AP.Config.TalentPrimaryBonus end
+        local bonusPct = rank * perRank * 100
+        snapshot.stats[statIndex] = {
+            statIndex = statIndex, name = AP.StatNames[statIndex], rank = rank,
+            role = primary == nil and "UNSET" or (isPrimary and "PRIMARY" or "SECONDARY"),
+            isPrimary = isPrimary, maxRank = maxRank, bonusPct = bonusPct,
+            nextCost = rank < maxRank and AP.TalentCost(rank, purchasesAsPrimary) or 0,
+            nextBonusPct = rank < maxRank and ((rank + 1) * perRank * 100) or bonusPct,
+        }
+    end
+    return snapshot
+end
+
+function AP.PreviewTalentSnapshot(talents, statIndex)
+    statIndex = tonumber(statIndex)
+    if not statIndex or statIndex ~= math.floor(statIndex) or statIndex < 0 or statIndex > 4 then
+        return { ok = false, status = "INVALID_STAT" }
+    end
+    local current = AP.BuildTalentSnapshot(talents)
+    local selected = current.stats[statIndex]
+    if selected.rank >= selected.maxRank then
+        return { ok = false, status = "MAX_RANK", statIndex = statIndex, current = current }
+    end
+    local projectedTalents = {}
+    for idx = 0, 4 do projectedTalents[idx] = current.stats[idx].rank end
+    projectedTalents[statIndex] = selected.rank + 1
+    return {
+        ok = true, status = "READY", statIndex = statIndex, cost = selected.nextCost,
+        current = current, projected = AP.BuildTalentSnapshot(projectedTalents),
+    }
+end
+
+-- Returns the role-derived max rank using the same deterministic snapshot.
 function AP.TalentMaxRank(statIndex, talents)
-    -- Count how many other stats have any investment
-    local hasOthers = false
-    for idx, rank in pairs(talents) do
-        if idx ~= statIndex and rank > 0 then
-            hasOthers = true
-            break
-        end
-    end
-    -- If this is the only invested stat or has highest rank, treat as primary
-    local myRank = talents[statIndex] or 0
-    local isFirst = true
-    for idx, rank in pairs(talents) do
-        if idx ~= statIndex and rank >= myRank and rank > 0 then
-            isFirst = false
-            break
-        end
-    end
-    if isFirst and not hasOthers then
-        return AP.Config.TalentPrimaryRanks
-    end
-    -- Check if this stat has the most ranks (primary)
-    local maxOther = 0
-    for idx, rank in pairs(talents) do
-        if idx ~= statIndex then maxOther = math.max(maxOther, rank) end
-    end
-    if myRank >= maxOther and myRank > 0 then
-        return AP.Config.TalentPrimaryRanks
-    end
-    return AP.Config.TalentSecondaryRanks
+    local stat = AP.BuildTalentSnapshot(talents).stats[statIndex]
+    return stat and stat.maxRank or AP.Config.TalentSecondaryRanks
 end
 
 -- Load attunement progress for a specific item entry on a character.
@@ -756,7 +664,7 @@ end
 function AP.LoadItemAttune(guid, itemEntry)
     local result = nil
     AP.Try(function()
-        local q = CharDBQuery(string.format(
+        local q = AP.DB.Query(string.format(
             "SELECT `progress`, `attuned` FROM `ap_item_attune` WHERE `guid` = %d AND `item_entry` = %d LIMIT 1;",
             guid, itemEntry))
         if q then
@@ -775,7 +683,7 @@ end
 function AP.SaveItemAttune(guid, itemEntry, progress, attuned)
     AP.Try(function()
         local attunedInt = attuned and 1 or 0
-        CharDBQuery(string.format([[
+        AP.DB.Execute(string.format([[
             INSERT INTO `ap_item_attune` (`guid`, `item_entry`, `progress`, `attuned`)
             VALUES (%d, %d, %d, %d)
             ON DUPLICATE KEY UPDATE `progress` = %d, `attuned` = %d;
@@ -787,7 +695,7 @@ end
 -- stats table: { str=N, agi=N, sta=N, int=N, spi=N }
 function AP.SaveSnapshot(guid, itemEntry, quality, stats)
     AP.Try(function()
-        CharDBQuery(string.format([[
+        AP.DB.ExecuteCritical(string.format([[
             INSERT INTO `ap_item_snapshot` (`guid`, `item_entry`, `quality`, `str`, `agi`, `sta`, `int`, `spi`)
             VALUES (%d, %d, %d, %.4f, %.4f, %.4f, %.4f, %.4f)
             ON DUPLICATE KEY UPDATE
@@ -801,7 +709,8 @@ function AP.SaveSnapshot(guid, itemEntry, quality, stats)
         guid, itemEntry, quality,
         stats.str or 0, stats.agi or 0, stats.sta or 0, stats.int or 0, stats.spi or 0,
         quality,
-        stats.str or 0, stats.agi or 0, stats.sta or 0, stats.int or 0, stats.spi or 0))
+        stats.str or 0, stats.agi or 0, stats.sta or 0, stats.int or 0, stats.spi or 0),
+        "AP.SaveSnapshot")
     end, "AP.SaveSnapshot")
 end
 
@@ -809,7 +718,7 @@ end
 function AP.LoadSnapshot(guid, itemEntry)
     local result = nil
     AP.Try(function()
-        local q = CharDBQuery(string.format(
+        local q = AP.DB.Query(string.format(
             "SELECT `quality`, `str`, `agi`, `sta`, `int`, `spi` FROM `ap_item_snapshot` WHERE `guid` = %d AND `item_entry` = %d LIMIT 1;",
             guid, itemEntry))
         if q then
@@ -833,10 +742,10 @@ end
 function AP.LoadSlotXP(guid, slot)
     local xp = 0
     AP.Try(function()
-        local q = CharDBQuery(string.format(
+        local q = AP.DB.Query(string.format(
             "SELECT `xp` FROM `ap_slot_mastery` WHERE `guid` = %d AND `slot` = %d LIMIT 1;",
             guid, slot))
-        if q then xp = tonumber(tostring(q:GetUInt64(0))) or 0 end
+        if q then xp = AP.DB.GetUInt64(q, 0) end
     end, "AP.LoadSlotXP")
     return xp
 end
@@ -844,11 +753,11 @@ end
 function AP.AddSlotXP(guid, slot, amount)
     AP.Try(function()
         -- INSERT IGNORE ensures row exists without opening a read snapshot
-        CharDBQuery(string.format(
+        AP.DB.Execute(string.format(
             "INSERT IGNORE INTO `ap_slot_mastery` (`guid`, `slot`, `xp`) VALUES (%d, %d, 0);",
             guid, slot))
         -- UPDATE adds the amount separately (no prior SELECT = no snapshot)
-        CharDBQuery(string.format(
+        AP.DB.Execute(string.format(
             "UPDATE `ap_slot_mastery` SET `xp` = `xp` + %d WHERE `guid` = %d AND `slot` = %d;",
             amount, guid, slot))
     end, "AP.AddSlotXP")
@@ -862,15 +771,15 @@ end
 function AP.CaptureSnapshot(player, item)
     if not player or not item then return end
     AP.Try(function()
-        local guid      = player:GetGUIDLow()
-        local itemEntry = item:GetEntry()
+        local guid      = AP.RT.GetGUID(player)
+        local itemEntry = AP.RT.GetItemEntry(item)
 
         -- Snapshot ALL equippable items regardless of armor class.
         -- Class restriction only applies at absorption time so alts of
         -- the right class benefit from snapshots captured by any character.
 
         -- Read stats and weapon damage from item_template
-        local q = WorldDBQuery(string.format([[
+        local q = AP.DB.WorldQuery(string.format([[
             SELECT `stat_type1`, `stat_value1`,
                    `stat_type2`, `stat_value2`,
                    `stat_type3`, `stat_value3`,
@@ -939,7 +848,7 @@ end
 function AP.CalculateAbsorption(guid, level, masteryRank)
     local totals = { str=0, agi=0, sta=0, int=0, spi=0 }
     AP.Try(function()
-        local q = CharDBQuery(string.format(
+        local q = AP.DB.Query(string.format(
             "SELECT `str`, `agi`, `sta`, `int`, `spi` FROM `ap_item_snapshot` WHERE `guid` = %d;",
             guid))
         if not q then return end
@@ -997,7 +906,7 @@ function AP.GetItemClass(itemEntry)
     end
     local result = { itemClass = 4, subClass = 1 }  -- default: cloth armor
     AP.Try(function()
-        local q = WorldDBQuery(string.format(
+        local q = AP.DB.WorldQuery(string.format(
             "SELECT `class`, `subclass` FROM `item_template` WHERE `entry` = %d LIMIT 1;",
             itemEntry))
         if q then
@@ -1043,7 +952,7 @@ function AP.GetAccountId(guid)
     if AP._accountCache[guid] then return AP._accountCache[guid] end
     local accountId = guid  -- fallback: use guid if account lookup fails
     AP.Try(function()
-        local q = CharDBQuery(string.format(
+        local q = AP.DB.Query(string.format(
             "SELECT `account` FROM `characters` WHERE `guid` = %d LIMIT 1;",
             guid))
         if q then
@@ -1054,11 +963,95 @@ function AP.GetAccountId(guid)
     return accountId
 end
 
+-- ============================================================
+-- E2j5a: SNAPSHOT STATS FROM ITEM_TEMPLATE (armor + weapon damage restoration)
+--
+-- Historical source: cpp_patch/mod_attunement_plus.patch (echoes-of-the-worldsoul repo,
+-- never applied to any deployed tree) proves the intended, actually-working formula:
+--   weapon_dps = ((dmin1+dmax1)/2 + (dmin2+dmax2)/2) / (delay/1000)   [class=2 weapons, delay>0]
+-- computed ONCE at attunement time and frozen, exactly like the five primary stats.
+--
+-- `armor` is ALSO captured here (item_template.armor, frozen at attunement) so the
+-- Lua-native AP.CalculateAbsorptionAccountWide (display/tooltip track, reads the stored
+-- snapshot `armor` column) produces a correct total. This is a DELIBERATE, documented
+-- divergence from mod-echoes-stats (the C++ engine-application track): the historical
+-- patch's own actually-executed CalculateAbsorption function reads armor LIVE from
+-- ItemTemplate at calculation time (not from the snapshot), specifically because "DB
+-- column unreliable for WotLK items whose armor is calculated dynamically by
+-- _ApplyItemBonuses, not stored in armor column" (patch's own comment) - the patch also
+-- contains a separate PatchEquippedItemArmor self-heal function that writes an
+-- ScalingStatValue-adjusted armor into the snapshot column, but that value is NEVER
+-- READ by CalculateAbsorption's own SELECT (which omits the armor column entirely) -
+-- i.e. even in the historical source, the stored/adjusted armor value was write-only,
+-- never actually consumed by the real calculation path. mod-echoes-stats therefore
+-- replicates the ACTUALLY-EXECUTED historical behavior (live raw item_template.armor,
+-- via EchoesStatsHooks.cpp's own ItemTemplate lookup - see EchoesQuerySnapshots), not
+-- the write-only self-heal path. This snapshot's own `armor` value is for the Lua
+-- display track only.
+--
+-- Returns { str, agi, sta, int, spi, armor, weapon_dps }, quality - never nil (matches
+-- AP.LoadMastery's own "never nil" convention); returns an all-zero stats table and
+-- quality=1 if the item_template row cannot be found.
+function AP.ComputeSnapshotStatsFromItemTemplate(itemEntry)
+    local stats = { str=0, agi=0, sta=0, ["int"]=0, spi=0, armor=0, weapon_dps=0 }
+    local quality = 1
+    local q = AP.DB.WorldQuery(string.format([[
+        SELECT `stat_type1`, `stat_value1`,
+               `stat_type2`, `stat_value2`,
+               `stat_type3`, `stat_value3`,
+               `stat_type4`, `stat_value4`,
+               `stat_type5`, `stat_value5`,
+               `stat_type6`, `stat_value6`,
+               `stat_type7`, `stat_value7`,
+               `stat_type8`, `stat_value8`,
+               `stat_type9`, `stat_value9`,
+               `stat_type10`, `stat_value10`,
+               `Quality`, `armor`,
+               `dmg_min1`, `dmg_max1`,
+               `dmg_min2`, `dmg_max2`,
+               `delay`, `class`
+        FROM `item_template`
+        WHERE `entry` = %d LIMIT 1;
+    ]], itemEntry))
+    if not q then
+        return stats, quality
+    end
+
+    for i = 0, 9 do
+        local statType  = tonumber(q:GetUInt32(i * 2))     or 0
+        local statValue = tonumber(q:GetUInt32(i * 2 + 1)) or 0
+        if     statType == 4 then stats.str    = stats.str    + statValue
+        elseif statType == 3 then stats.agi    = stats.agi    + statValue
+        elseif statType == 7 then stats.sta    = stats.sta    + statValue
+        elseif statType == 5 then stats["int"] = stats["int"] + statValue
+        elseif statType == 6 then stats.spi    = stats.spi    + statValue
+        end
+    end
+    quality        = tonumber(q:GetUInt8(20))  or 1
+    stats.armor    = tonumber(q:GetUInt32(21)) or 0
+    local dmin1    = tonumber(q:GetString(22)) or 0
+    local dmax1    = tonumber(q:GetString(23)) or 0
+    local dmin2    = tonumber(q:GetString(24)) or 0
+    local dmax2    = tonumber(q:GetString(25)) or 0
+    local delay    = tonumber(q:GetUInt32(26)) or 0
+    local itemClass = tonumber(q:GetUInt8(27)) or 0
+
+    -- weapon_dps: class=2 (Weapon) only, requires a valid (nonzero) attack delay.
+    -- Gray/common weapons use the exact same formula as any other quality - no quality
+    -- restriction, matching this phase's explicit instruction.
+    if itemClass == 2 and delay > 0 then
+        local avgDmg = ((dmin1 + dmax1) / 2) + ((dmin2 + dmax2) / 2)
+        stats.weapon_dps = avgDmg / (delay / 1000)
+    end
+
+    return stats, quality
+end
+
 -- Account-wide snapshot: save using accountId as the key
 function AP.SaveSnapshotAccountWide(guid, itemEntry, quality, stats)
     local accountId = AP.GetAccountId(guid)
     AP.Try(function()
-        CharDBQuery(string.format([[
+        AP.DB.ExecuteCritical(string.format([[
             INSERT INTO `ap_item_snapshot`
                 (`guid`, `item_entry`, `quality`, `str`, `agi`, `sta`, `int`, `spi`, `armor`, `weapon_dps`)
             VALUES (%d, %d, %d, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f)
@@ -1075,8 +1068,9 @@ function AP.SaveSnapshotAccountWide(guid, itemEntry, quality, stats)
             quality,
             stats.str or 0, stats.agi or 0, stats.sta or 0,
             stats["int"] or 0, stats.spi or 0, stats.armor or 0,
-            stats.weapon_dps or 0))
-        CharDBQuery("COMMIT;")
+            stats.weapon_dps or 0),
+        "AP.SaveSnapshotAccountWide")
+        AP.DB.Execute("COMMIT;")
     end, "AP.SaveSnapshotAccountWide")
 end
 
@@ -1086,7 +1080,7 @@ function AP.CalculateAbsorptionAccountWide(guid, playerClass, level, masteryRank
     local accountId = AP.GetAccountId(guid)
     local totals = { str=0, agi=0, sta=0, ["int"]=0, spi=0, armor=0 }
     AP.Try(function()
-        local q = CharDBQuery(string.format([[
+        local q = AP.DB.Query(string.format([[
             SELECT `item_entry`, `str`, `agi`, `sta`, `int`, `spi`, `armor`
             FROM `ap_item_snapshot`
             WHERE `guid` = %d;
@@ -1111,7 +1105,7 @@ function AP.CalculateAbsorptionAccountWide(guid, playerClass, level, masteryRank
     end, "AP.CalculateAbsorptionAccountWide")
     return totals
 end
-RegisterServerEvent(3, function()  -- EVENT_ON_SERVER_STARTUP
+AP.RT.RegisterEvent("server", 3, function()  -- EVENT_ON_SERVER_STARTUP
     AP.Try(function()
         AP.Log("Echoes of the Worldsoul core loading...")
 
@@ -1124,7 +1118,13 @@ RegisterServerEvent(3, function()  -- EVENT_ON_SERVER_STARTUP
         end
 
         AP.InitDB()
-        AP.Log("Core initialized. DirectStatMode=" .. tostring(AP.Config.DirectStatMode))
+        -- Finalise profile detection now that AP.Config is available.
+        -- ap00_compat.lua defined AP.Compat.Apply(); it must be called here,
+        -- not at load-time, because AP.Config.DMLMode is not readable until
+        -- after ap_core.lua's top-level code has executed.
+        if AP.Compat and AP.Compat.Apply then AP.Compat.Apply() end
+        AP.Log("Core initialized. Profile=" .. tostring(AP.Profile and AP.Profile.name or "?")
+            .. "  DirectStatMode=" .. tostring(AP.Config.DirectStatMode))
 
         -- Print module states
         for name, mod in pairs(AP.Modules) do

@@ -1,12 +1,15 @@
-﻿-- Copyright (C) 2025-2026 vibecoder99
+-- Copyright (C) 2025-2026 vibecoder99
 -- This program is free software: you can redistribute it and/or modify
 -- it under the terms of the GNU General Public License as published by
 -- the Free Software Foundation, either version 3 of the License, or
 -- (at your option) any later version. See LICENSE for the full text.
 -- ============================================================
 -- ap_sinks.lua  -  Echoes of the Worldsoul: Aether Sink System
--- Phase 1: Life Leech (Lua), Fortitude, Melee Power,
---          Spell Power (C++ side  -  see C++ instruction sheet)
+-- Phase 1: Life Leech, Fortitude, Melee Power, Spell Power (all C++ side
+--          - see mod-echoes-stats/src/EchoesStatsHooks.cpp)
+-- E2j8 (2026-07-30): Life Leech's real consumer is a per-hit C++ OnDamage handler, NOT the
+-- disabled OnKillCreature_Leech Lua function below (its event registration has been commented
+-- out since before E2j2 and stays that way - see E2j8 closure evidence for the full history).
 -- Full 18-category infrastructure built so Phase 2 additions
 -- only require new rows in AP.SinkDefs and new C++ handlers.
 -- ============================================================
@@ -61,7 +64,13 @@ AP.SinkDefs = {
     },
     armor_pen = {
         label    = "Armor Penetration",
-        desc     = "Partially bypasses target physical armor.",
+        -- E2j7b, 2026-07-30: rewritten per Jonah's explicit instruction to disclose the real
+        -- mechanic in-mod rather than leave players to find it in patch notes. This effect boosts
+        -- ALL outgoing damage (melee, ranged, and spells alike), not physical damage alone -
+        -- the current engine hook cannot distinguish damage school, so the bonus is applied
+        -- uniformly. The bonus scales with the TARGET's armor (zero against unarmored targets,
+        -- larger against heavily-armored ones) regardless of what kind of damage you dealt.
+        desc     = "Boosts all your outgoing damage - melee, ranged, and spells alike - scaling with how armored your target is.",
         ceiling  = 0.30,   -- up to 30% armor pen
         k        = 0.000003,
         active   = true,   -- C++ OnDamage
@@ -145,13 +154,19 @@ AP.SinkDefs = {
     },
     threat_reduction = {
         label    = "Threat Reduction",
-        desc     = "Reduces generated threat.",
+        desc     = "Reserved for a future implementation. Currently provides no effect and cannot be purchased.",
         ceiling  = 0.30,
         k        = 0.000003,
-        -- Implemented via custom spell 900001 (AP Threat Reduction) in spell_dbc:
-        -- SPELL_EFFECT_APPLY_AURA + SPELL_AURA_MOD_THREAT, EffectMiscValue=127 (all schools).
-        -- C++ ApplyAttunementStats applies/updates the aura via AddAura + AuraEffect::ChangeAmount.
-        active   = true,   -- C++ periodic refresh (ApplyAttunementStats)
+        -- E2j12 (2026-08-12): a contract for this category was design-recovered (custom spell
+        -- 900001, SPELL_AURA_MOD_THREAT) but NEVER BUILT. No C++ consumer exists anywhere in
+        -- mod-echoes-stats or mod-echoes-playerbots (confirmed by repo-wide grep, E2j12
+        -- Threat Reduction Safety Audit). The previous comment here claimed a specific live
+        -- C++ periodic-refresh function that does not exist in this codebase; that claim was
+        -- fabricated/stale and has been removed. Confirmed zero account/character investment
+        -- exists in production as of 2026-08-12 (see E2J12-THREAT-REDUCTION-SAFETY-AUDIT.md).
+        -- Do not set active=true again without an actual engine consumer landing first
+        -- (Decision 15).
+        active   = false,  -- UNAVAILABLE: AP.Sinks.Invest rejects purchases while active=false
         phase    = 2,
     },
     res_resilience = {
@@ -164,8 +179,8 @@ AP.SinkDefs = {
     },
     aether_surge = {
         label    = "Aether Surge",
-        desc     = "Bonus Aether from kills and quests.",
-        ceiling  = 0.50,   -- up to +50% Aether from kills
+        desc     = "Bonus Essence from kills and quests.",
+        ceiling  = 0.50,   -- up to +50% Essence from kills
         k        = 0.000004,
         active   = true,   -- Lua multiplier in ap_events.lua
         phase    = 2,
@@ -249,6 +264,33 @@ function AP.Sinks.GetEffectDisplay(category, invested)
     return string.format("%.2f%%", eff * 100)
 end
 
+-- E2j12: three-state player-facing status vocabulary, replacing the old binary
+-- "[ACTIVE]"/"[Phase N]" badge (which rendered threat_reduction identically to 17
+-- genuinely-functioning categories despite it doing nothing -- see E2j12 UX audit).
+--   UNAVAILABLE -> active=false, no engine consumer, no purchase possible
+--   MAXED       -> effect has reached (within float tolerance) this category's ceiling
+--   AVAILABLE   -> active=true and further investment still raises the effect
+function AP.Sinks.GetStatus(category, invested)
+    local def = AP.SinkDefs[category]
+    if not def then return "UNAVAILABLE" end
+    if def.active == false then return "UNAVAILABLE" end
+    local eff = AP.Sinks.GetEffect(category, invested)
+    if def.ceiling > 0 and eff >= def.ceiling * 0.999 then return "MAXED" end
+    return "AVAILABLE"
+end
+
+-- Color-coded "STATUS" text for gossip display, keyed off AP.Sinks.GetStatus.
+function AP.Sinks.GetStatusDisplay(category, invested)
+    local status = AP.Sinks.GetStatus(category, invested)
+    if status == "AVAILABLE" then
+        return "|cff00ff00AVAILABLE|r"
+    elseif status == "MAXED" then
+        return "|cffffd700MAXED|r"
+    else
+        return "|cff888888UNAVAILABLE|r"
+    end
+end
+
 -- Returns the Aether cost to invest the next `amount` Aether
 -- into a category. Cost IS the amount  -  sinks are a direct
 -- 1:1 Aether spend. There is no markup. The cost of the sink
@@ -264,7 +306,7 @@ end
 
 function AP.Sinks.LoadForAccount(accountId)
     AP.SinkCache[accountId] = {}
-    local q = CharDBQuery(string.format(
+    local q = AP.DB.Query(string.format(
         "SELECT `category`, `invested` FROM `ap_aether_sinks` WHERE `account_id` = %d",
         accountId
     ))
@@ -279,7 +321,7 @@ end
 
 function AP.Sinks.LoadAllocForChar(guid)
     AP.SinkAlloc[guid] = {}
-    local q = CharDBQuery(string.format(
+    local q = AP.DB.Query(string.format(
         "SELECT `category`, `allocation` FROM `ap_sink_allocation` WHERE `guid` = %d",
         guid
     ))
@@ -310,16 +352,27 @@ function AP.Sinks.Invest(player, category, amount)
     if not AP.SinkDefs[category] then
         return false, "Unknown sink category."
     end
+    -- E2j12: a category with active=false has no engine consumer and must reject every
+    -- purchase attempt before any Essence is touched. This is the single choke point both
+    -- the human gossip UI (ap_ui.lua/ap_sinks.lua ShowDetail) and the bot purchase bridge
+    -- (ap_botapi.lua's AP.API.ExecuteSinkInvest) go through, so gating here covers both
+    -- paths identically -- no separate bot-side check is needed or should be added.
+    if AP.SinkDefs[category].active == false then
+        return false, string.format(
+            "%s is unavailable -- reserved for a future implementation, no Essence can be spent here.",
+            AP.SinkDefs[category].label or category
+        )
+    end
     if type(amount) ~= "number" or amount < 1 then
         return false, "Invalid investment amount."
     end
     amount = math.floor(amount)
 
-    local guid      = player:GetGUIDLow()
-    local accountId = player:GetAccountId()
+    local guid      = AP.RT.GetGUID(player)
+    local accountId = AP.RT.GetAccountId(player)
 
     -- Read current Aether
-    local q = CharDBQuery(string.format(
+    local q = AP.DB.Query(string.format(
         "SELECT `aether` FROM `ap_mastery` WHERE `guid` = %d",
         guid
     ))
@@ -335,35 +388,60 @@ function AP.Sinks.Invest(player, category, amount)
         )
     end
 
-    -- NOTE: Two separate commits, not a single transaction. BEGIN/COMMIT via
-    -- CharDBExecute is NOT atomic on AzerothCore's async connection pool.
-    -- Each CharDBExecute call enqueues a separate BasicStatementTask on a shared
-    -- ProducerConsumerQueue consumed by async worker threads, each owning its own
-    -- MySQL connection. With >1 async worker, BEGIN can land on connection A and
-    -- COMMIT on connection B -- connection B has no open transaction and commits
-    -- nothing; connection A's transaction hangs open until timeout.
-    -- Even with WorkerThreads=1 (current config), the C++ core (character autosaves,
-    -- loot, etc.) also pushes to the same shared queue, so C++ writes can interleave
-    -- with an open transaction between BEGIN and COMMIT.
-    -- True atomicity requires AzerothCore's BeginTransaction/CommitTransaction C++ API
-    -- (which wraps all statements in one TransactionTask queue item and executes them
-    -- on one connection). That API is not exposed to Eluna Lua.
-    -- Known gap: a crash between these two commits can deduct Aether without the
-    -- corresponding sink investment being recorded. Non-exploitable (player loses
-    -- Aether, gains nothing). Acceptable until a synchronous transaction mechanism
-    -- is confirmed available from Lua.
-    CharDBExecute(string.format(
-        "UPDATE `ap_mastery` SET `aether` = `aether` - %d WHERE `guid` = %d",
-        amount, guid
+    -- Two rapid/replayed Invest calls (autoclicker, macro, manually replayed
+    -- protocol command) must never both succeed against the same Aether.
+    -- The old code deducted via a plain relative "aether - amount" async
+    -- write with no guard tying it back to the balance just read -- two
+    -- calls reading the same pre-deduction balance would both pass the
+    -- currentAether check above and both blindly deduct, which can drive
+    -- the column negative and, since each call still credits
+    -- ap_aether_sinks for its own amount, double-credit the investment for
+    -- the Aether cost of one. Guard the deduction itself with an exact
+    -- compare-and-swap on the value THIS call actually read (never a
+    -- client-supplied value), mirroring the proven pattern already used by
+    -- AP.Rack.PurchaseExpand: a synchronous write whose WHERE clause only
+    -- matches if the balance is still exactly what was read, followed by a
+    -- post-write verify. If another call (or this one, replayed) already
+    -- changed the balance in between, the WHERE clause matches zero rows,
+    -- the verify catches that the balance didn't move as expected, and
+    -- this call is safely rejected instead of proceeding to credit the sink.
+    local wrote = AP.DB.ExecuteCritical(string.format(
+        "UPDATE `ap_mastery` SET `aether` = `aether` - %d WHERE `guid` = %d AND `aether` = %d",
+        amount, guid, currentAether
+    ), "AP.Sinks.Invest")
+    if not wrote then
+        return false, "The Worldsoul connection faltered mid-investment. Please try again."
+    end
+
+    local verify = AP.DB.Query(string.format(
+        "SELECT `aether` FROM `ap_mastery` WHERE `guid` = %d", guid
     ))
-    CharDBExecute("COMMIT")
-    CharDBExecute(string.format(
+    local aetherAfter = verify and tonumber(tostring(verify:GetUInt32(0)))
+    if not verify or aetherAfter ~= currentAether - amount then
+        return false, "Your Essence balance changed before this investment could complete. Please try again."
+    end
+
+    -- NOTE: the Aether deduction above and the sink credit below are still
+    -- two separate commits, not a single cross-table transaction --
+    -- BEGIN/COMMIT via CharDBExecute is NOT atomic on AzerothCore's async
+    -- connection pool (see prior investigation: async worker threads each
+    -- own their own MySQL connection, so BEGIN/COMMIT can land on
+    -- different connections, and the C++ core's own writes share the same
+    -- queue). True atomicity requires AzerothCore's BeginTransaction/
+    -- CommitTransaction C++ API, not exposed to Eluna Lua. The compare-
+    -- and-swap above closes the double-credit/negative-balance race; the
+    -- remaining gap is narrower and already-accepted: a crash strictly
+    -- between the two writes below can deduct Aether without recording
+    -- the sink investment. Non-exploitable (player loses Aether, gains
+    -- nothing) and cannot happen twice for the same amount, since the
+    -- guarded deduction above has already succeeded exactly once.
+    AP.DB.ExecuteAsync(string.format(
         "INSERT INTO `ap_aether_sinks` (`account_id`, `category`, `invested`) "..
         "VALUES (%d, '%s', %d) "..
         "ON DUPLICATE KEY UPDATE `invested` = `invested` + %d",
         accountId, category, amount, amount
     ))
-    CharDBExecute("COMMIT")
+    AP.DB.ExecuteAsync("COMMIT")
 
     -- Update cache
     if not AP.SinkCache[accountId] then AP.SinkCache[accountId] = {} end
@@ -373,7 +451,7 @@ function AP.Sinks.Invest(player, category, amount)
     local newEffect   = AP.Sinks.GetEffectDisplay(category, newInvested)
     local def         = AP.SinkDefs[category]
 
-    player:SendBroadcastMessage(string.format(
+    AP.RT.SendMessage(player,string.format(
         "|cff9966ff[Worldsoul]|r Invested %d Essence in %s. "..
         "Total: %d | Effect: %s (cap: %.0f%%)",
         amount, def.label, newInvested, newEffect, def.ceiling * 100
@@ -387,7 +465,7 @@ function AP.Sinks.Invest(player, category, amount)
     -- Visage: check for Crucible milestone crossing
     if AP.Visage and AP.Visage.CheckCrucibleMilestone then
         local totalInvested = 0
-        local tq = CharDBQuery(string.format(
+        local tq = AP.DB.Query(string.format(
             "SELECT SUM(`invested`) FROM `ap_aether_sinks` WHERE `account_id` = %d",
             accountId
         ))
@@ -399,15 +477,20 @@ function AP.Sinks.Invest(player, category, amount)
 end
 
 -- ============================================================
--- LIFE LEECH  -  Lua combat hook
+-- LIFE LEECH  -  DEAD CODE, kept as historical reference only.
 -- On creature kill, heal the player for leech% of the
 -- creature's max HP. This is a proxy for damage-dealt leech
 -- since Eluna on this build may not expose per-hit damage hooks.
--- Only fires if life_leech invested > 0.
+-- Its event registration below has been commented out since before E2j2 (predates the
+-- E2j2 functionality audit by ~5 days), and stays that way per E2j8's explicit decision
+-- (2026-07-30): the real, authorized Life Leech contract is the per-hit C++ implementation in
+-- mod-echoes-stats/src/EchoesStatsHooks.cpp (heals % of damage dealt, every hit - NOT this
+-- killing-blow/mob-max-HP proxy, which is a different, rejected mechanic). Do not re-enable
+-- the registration below.
 -- ============================================================
 local function OnKillCreature_Leech(event, player, xp, creature, bonus)
     local ok, err = pcall(function()
-        local accountId = player:GetAccountId()
+        local accountId = AP.RT.GetAccountId(player)
 
         -- Reload cache if missing entirely, or if life_leech specifically is absent
         if not AP.SinkCache[accountId] or AP.SinkCache[accountId]["life_leech"] == nil then
@@ -422,39 +505,34 @@ local function OnKillCreature_Leech(event, player, xp, creature, bonus)
         if leechFrac <= 0 then return end
 
         -- Reduce Life Leech at higher Threat
-        local session = AP._session and AP._session[player:GetGUIDLow()]
+        local session = AP._session and AP._session[AP.RT.GetGUID(player)]
         local threatLvl = session and session.threat or 0
         if threatLvl > 0 then
             leechFrac = leechFrac * AP.GetSafetyScalar(threatLvl)
         end
 
-        local creatureLevel = creature:GetLevel()
-        local playerLevel   = player:GetLevel()
+        local creatureLevel = AP.RT.GetCreatureLevel(creature)
+        local playerLevel   = AP.RT.GetLevel(player)
         if (playerLevel - creatureLevel) > 10 then return end
 
-        local mobMaxHP = creature:GetMaxHealth()
+        local mobMaxHP = AP.RT.GetMaxHealth(creature)
         local healAmt  = math.max(1, math.floor(mobMaxHP * leechFrac))
-        local curHP    = player:GetHealth()
-        local maxHP    = player:GetMaxHealth()
+        local curHP    = AP.RT.GetHealth(player)
+        local maxHP    = AP.RT.GetMaxHealth(player)
 
         local heal = math.min(healAmt, maxHP - curHP)
         if heal <= 0 then return end
 
         -- Try SetHealth; fall back to ModifyHealth if available
         local healed = false
-        local hok = pcall(function()
-            player:SetHealth(curHP + heal)
-            healed = true
-        end)
+        local hok = AP.RT.SetHealth(player, curHP + heal)
+        healed = hok
         if not healed then
-            pcall(function()
-                player:ModifyHealth(heal)
-                healed = true
-            end)
+            healed = AP.RT.ModifyHealth(player, heal)
         end
 
         if healed then
-            player:SendBroadcastMessage(string.format(
+            AP.RT.SendMessage(player,string.format(
                 "|cff9966ff[Worldsoul]|r Life Leech: +%d HP (%.2f%% of mob HP)",
                 heal, leechFrac * 100
             ))
@@ -467,15 +545,15 @@ local function OnKillCreature_Leech(event, player, xp, creature, bonus)
     end
 end
 
--- RegisterPlayerEvent(12, OnKillCreature_Leech)  -- disabled: moved to C++ per-hit leech
+-- AP.RT.RegisterEvent("player", 12, OnKillCreature_Leech)  -- disabled: moved to C++ per-hit leech
 
 -- ============================================================
 -- LOGIN HOOK  -  load sink data into cache
 -- ============================================================
 local function OnLogin_Sinks(event, player)
     local ok, err = pcall(function()
-        local accountId = player:GetAccountId()
-        local guid      = player:GetGUIDLow()
+        local accountId = AP.RT.GetAccountId(player)
+        local guid      = AP.RT.GetGUID(player)
         AP.Sinks.LoadForAccount(accountId)
         AP.Sinks.LoadAllocForChar(guid)
         -- Notify C++ refresh that sink data is ready
@@ -486,7 +564,7 @@ local function OnLogin_Sinks(event, player)
     end
 end
 
-RegisterPlayerEvent(3, OnLogin_Sinks)  -- PLAYER_EVENT_ON_LOGIN
+AP.RT.RegisterEvent("player", 3, OnLogin_Sinks)  -- PLAYER_EVENT_ON_LOGIN
 
 -- ============================================================
 -- GOSSIP UI  -  Aether Sinks page
@@ -498,29 +576,29 @@ RegisterPlayerEvent(3, OnLogin_Sinks)  -- PLAYER_EVENT_ON_LOGIN
 -- Shows all categories grouped by phase with current effect
 function AP.Sinks.ShowPage(player, npc, page)
     page = page or 1
-    local accountId = player:GetAccountId()
-    local guid      = player:GetGUIDLow()
+    local accountId = AP.RT.GetAccountId(player)
+    local guid      = AP.RT.GetGUID(player)
 
     -- Read current Aether from DB (fresh read for accurate display)
     local aetherNow = 0
-    local aq = CharDBQuery(string.format(
+    local aq = AP.DB.Query(string.format(
         "SELECT `aether` FROM `ap_mastery` WHERE `guid` = %d", guid
     ))
     if aq then
         aetherNow = tonumber(tostring(aq:GetUInt32(0))) or 0
     end
 
-    player:GossipClearMenu()
+    AP.UI.ClearMenu(player)
 
-    -- Header
+    -- Header (Layer 1: explanation before any numbers, per the E2j12 three-layer model)
     local headerText = string.format(
-        "The Crucible  -  Invest Essence for permanent effects.\n"..
-        "Your Essence: |cffffd700%d|r\n"..
-        "Effects marked (ACTIVE) are live this session.\n"..
-        "Effects marked (Phase 2) are coming soon.",
+        "The Crucible  -  Spend Essence on a permanent, account-wide specialty of your choosing.\n"..
+        "Every category below is either AVAILABLE (you can invest now), MAXED (you've reached\n"..
+        "its ceiling), or UNAVAILABLE (not yet implemented -- no Essence can be spent there).\n"..
+        "Your Essence: |cffffd700%d|r",
         aetherNow
     )
-    player:GossipMenuAddItem(0, headerText, 0, 0, false, "", 0)
+    AP.UI.AddItem(player,0, headerText, 0, 0, false, "", 0)
 
     -- Build page of 8 categories (gossip menu has item limits)
     local pageSize  = 8
@@ -533,37 +611,29 @@ function AP.Sinks.ShowPage(player, npc, page)
         local def    = AP.SinkDefs[cat]
         local inv    = AP.Sinks.GetInvested(accountId, cat)
         local effStr = AP.Sinks.GetEffectDisplay(cat, inv)
-        local status = def.active and "|cff00ff00ACTIVE|r" or
-                       string.format("|cff888888Phase %d|r", def.phase)
+        local status = AP.Sinks.GetStatusDisplay(cat, inv)
 
-        local flavor = AP.SinkFlavor[cat] or ""
-        local line
-        if flavor ~= "" then
-            line = string.format(
-                "|cffaa99cc\"%s\"|r\n[%s] %s  -  %s | Invested: %d",
-                flavor, status, def.label, effStr, inv
-            )
-        else
-            line = string.format(
-                "[%s] %s  -  %s | Invested: %d",
-                status, def.label, effStr, inv
-            )
-        end
+        -- Layer 2 row: name / status / short meaning / current investment+effect.
+        -- Exact formula (ceiling, k, milestone projections) lives on the detail subpage.
+        local line = string.format(
+            "%s  [%s]\n%s\nInvested: %d | Current effect: %s",
+            def.label, status, def.desc, inv, effStr
+        )
         -- sender=1 means "open detail page for this category"
-        player:GossipMenuAddItem(0, line, 101, i, false, "", 0)
+        AP.UI.AddItem(player,0, line, 101, i, false, "", 0)
     end
 
     -- Navigation
     if page > 1 then
-        player:GossipMenuAddItem(0, "<< Previous page", 102, page - 1, false, "", 0)
+        AP.UI.AddItem(player,0, "<< Previous page", 102, page - 1, false, "", 0)
     end
     if page < totalPages then
-        player:GossipMenuAddItem(0, "Next page >>", 102, page + 1, false, "", 0)
+        AP.UI.AddItem(player,0, "Next page >>", 102, page + 1, false, "", 0)
     end
 
-    player:GossipMenuAddItem(0, "<< Back to Main Menu", 103, 0, false, "", 0)
+    AP.UI.AddItem(player,0, "<< Back to Main Menu", 103, 0, false, "", 0)
 
-    player:GossipSendMenu(1, npc, 102)
+    AP.UI.SendMenu(player,1, npc, 102)
 end
 
 -- Detail page for a single sink category
@@ -574,8 +644,8 @@ function AP.Sinks.ShowDetail(player, npc, catIndex)
         return
     end
     local def       = AP.SinkDefs[cat]
-    local accountId = player:GetAccountId()
-    local guid      = player:GetGUIDLow()
+    local accountId = AP.RT.GetAccountId(player)
+    local guid      = AP.RT.GetGUID(player)
     local inv       = AP.Sinks.GetInvested(accountId, cat)
     local effStr    = AP.Sinks.GetEffectDisplay(cat, inv)
 
@@ -592,24 +662,23 @@ function AP.Sinks.ShowDetail(player, npc, catIndex)
 
     -- Current Aether
     local aetherNow = 0
-    local aq = CharDBQuery(string.format(
+    local aq = AP.DB.Query(string.format(
         "SELECT `aether` FROM `ap_mastery` WHERE `guid` = %d", guid
     ))
     if aq then aetherNow = tonumber(tostring(aq:GetUInt32(0))) or 0 end
 
-    player:GossipClearMenu()
+    AP.UI.ClearMenu(player)
 
-    local phaseStr = def.active and "|cff00ff00ACTIVE - Phase 1|r" or
-                     string.format("|cff888888Coming - Phase %d|r", def.phase)
+    local statusStr = AP.Sinks.GetStatusDisplay(cat, inv)
     local flavor = AP.SinkFlavor[cat] or ""
     local flavorLine = flavor ~= "" and
         string.format("|cffaa99cc\"%s\"|r\n\n", flavor) or ""
     local header = string.format(
-        "%s%s  -  %s\n%s\nCeiling: %.0f%%\nYour investment: %d Aether\nCurrent effect: %s\nYour Aether: %d\n\nProjected effects:%s",
-        flavorLine, def.label, phaseStr, def.desc,
+        "%s%s  [%s]\n%s\nCeiling: %.0f%%\nYour investment: %d Essence\nCurrent effect: %s\nYour Essence: %d\n\nProjected effects:%s",
+        flavorLine, def.label, statusStr, def.desc,
         def.ceiling * 100, inv, effStr, aetherNow, preview
     )
-    player:GossipMenuAddItem(0, header, 0, 0, false, "", 0)
+    AP.UI.AddItem(player,0, header, 0, 0, false, "", 0)
 
     if def.active then
         -- Invest buttons: fixed amounts
@@ -619,25 +688,28 @@ function AP.Sinks.ShowDetail(player, npc, catIndex)
                 local projInv    = inv + amt
                 local projEff    = AP.Sinks.GetEffectDisplay(cat, projInv)
                 local btnLabel   = string.format(
-                    "Invest %d Aether -> effect becomes %s",
+                    "Invest %d Essence -> effect becomes %s",
                     amt, projEff
                 )
                 -- sender=4 = invest action, code = catIndex * 1000000 + amt
                 -- (pack category and amount into the gossip code integer)
-                player:GossipMenuAddItem(0, btnLabel, 104, catIndex * 1000 + math.floor(amt / 1000), false, "", 0)
+                AP.UI.AddItem(player,0, btnLabel, 104, catIndex * 1000 + math.floor(amt / 1000), false, "", 0)
             end
         end
         if aetherNow < 1000 then
-            player:GossipMenuAddItem(0, "|cffff4444Not enough Aether to invest (minimum 1,000)|r", 0, 0, false, "", 0)
+            AP.UI.AddItem(player,0, "|cffff4444Not enough Essence to invest (minimum 1,000)|r", 0, 0, false, "", 0)
         end
     else
-        player:GossipMenuAddItem(0, "|cff888888This sink category is not yet active.|r", 0, 0, false, "", 0)
+        AP.UI.AddItem(player,0, string.format(
+            "|cff888888UNAVAILABLE -- %s is reserved for a future implementation and currently provides no effect. No Essence can be spent here.|r",
+            def.label
+        ), 0, 0, false, "", 0)
     end
 
-    player:GossipMenuAddItem(0, "<< Back to The Crucible", 105, 1, false, "", 0)
-    player:GossipMenuAddItem(0, "<< Back to Main Menu", 103, 0, false, "", 0)
+    AP.UI.AddItem(player,0, "<< Back to The Crucible", 105, 1, false, "", 0)
+    AP.UI.AddItem(player,0, "<< Back to Main Menu", 103, 0, false, "", 0)
 
-    player:GossipSendMenu(1, npc, 102)
+    AP.UI.SendMenu(player,1, npc, 102)
 end
 
 -- ============================================================
@@ -672,7 +744,7 @@ function AP.Sinks.OnSelect(player, npc, sender, code, menu)
         local cat      = AP.SinkOrder[catIndex]
 
         if not cat then
-            player:SendBroadcastMessage("|cffff4444[Worldsoul] Invalid category.|r")
+            AP.RT.SendMessage(player,"|cffff4444[Worldsoul] Invalid category.|r")
             AP.Sinks.ShowPage(player, npc, 1)
             return
         end
@@ -682,7 +754,7 @@ function AP.Sinks.OnSelect(player, npc, sender, code, menu)
             -- Refresh detail page to show updated state
             AP.Sinks.ShowDetail(player, npc, catIndex)
         else
-            player:SendBroadcastMessage("|cffff4444[Worldsoul] " .. (reason or "Error.") .. "|r")
+            AP.RT.SendMessage(player,"|cffff4444[Worldsoul] " .. (reason or "Error.") .. "|r")
             AP.Sinks.ShowDetail(player, npc, catIndex)
         end
     elseif sender == 5 then
@@ -699,28 +771,28 @@ end
 
 -- Get the current life leech fraction for a player
 function AP.Sinks.GetLifeLeechForPlayer(player)
-    local accountId = player:GetAccountId()
+    local accountId = AP.RT.GetAccountId(player)
     local inv = AP.Sinks.GetInvested(accountId, "life_leech")
     return AP.Sinks.GetEffect("life_leech", inv)
 end
 
 -- Get the current fortitude bonus fraction for a player
 function AP.Sinks.GetFortitudeForPlayer(player)
-    local accountId = player:GetAccountId()
+    local accountId = AP.RT.GetAccountId(player)
     local inv = AP.Sinks.GetInvested(accountId, "fortitude")
     return AP.Sinks.GetEffect("fortitude", inv)
 end
 
 -- Get the current melee power bonus fraction for a player
 function AP.Sinks.GetMeleePowerForPlayer(player)
-    local accountId = player:GetAccountId()
+    local accountId = AP.RT.GetAccountId(player)
     local inv = AP.Sinks.GetInvested(accountId, "melee_power")
     return AP.Sinks.GetEffect("melee_power", inv)
 end
 
 -- Get the current spell power bonus fraction for a player
 function AP.Sinks.GetSpellPowerForPlayer(player)
-    local accountId = player:GetAccountId()
+    local accountId = AP.RT.GetAccountId(player)
     local inv = AP.Sinks.GetInvested(accountId, "spell_power")
     return AP.Sinks.GetEffect("spell_power", inv)
 end

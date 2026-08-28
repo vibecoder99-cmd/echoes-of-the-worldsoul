@@ -1,4 +1,4 @@
-﻿-- Copyright (C) 2025-2026 vibecoder99
+-- Copyright (C) 2025-2026 vibecoder99
 -- This program is free software: you can redistribute it and/or modify
 -- it under the terms of the GNU General Public License as published by
 -- the Free Software Foundation, either version 3 of the License, or
@@ -15,6 +15,7 @@
 --
 -- Payload format (whispered back to the player):
 --   [APTIP] id=<entry>|prog=<N>|cap=<N>|snap=<str>/<agi>/<sta>/<int>/<spi>|absorb=<str>/<agi>/<sta>/<int>/<spi>
+--   [APTIP] id=<entry>|ineligible=1
 --
 -- The AddOn filters this whisper from appearing in chat,
 -- parses the fields, caches by item entry, and injects lines
@@ -32,6 +33,27 @@
 -- ============================================================
 
 AP = AP or {}
+
+-- Tooltip eligibility is deliberately broader than stat-absorption eligibility.
+-- Every real WotLK Weapon (class 2) and Armor item (class 4) may accrue and show
+-- attunement, including shields, held-in-offhand items, ranged weapons, and relics.
+-- A missing item_template row is never treated as eligible.
+function AP.IsTooltipEligibleItem(itemEntry)
+    itemEntry = tonumber(itemEntry)
+    if not itemEntry or itemEntry <= 0 then return false end
+
+    local eligible = false
+    AP.Try(function()
+        local q = AP.DB.WorldQuery(string.format(
+            "SELECT `class` FROM `item_template` WHERE `entry` = %d LIMIT 1;",
+            itemEntry))
+        if q then
+            local itemClass = tonumber(q:GetUInt8(0))
+            eligible = itemClass == 2 or itemClass == 4
+        end
+    end, "AP.IsTooltipEligibleItem")
+    return eligible
+end
 
 -- ============================================================
 -- PAYLOAD BUILDER
@@ -84,8 +106,15 @@ function AP.SendTooltipPayload(player, itemEntry)
     if not player or not itemEntry or itemEntry <= 0 then return end
 
     AP.Try(function()
-        local guid        = player:GetGUIDLow()
-        local level       = player:GetLevel()
+        if not AP.IsTooltipEligibleItem(itemEntry) then
+            local payload = string.format("[APTIP] id=%d|ineligible=1", itemEntry)
+            AP.RT.SendMessage(player, payload)
+            AP.Debug("Tooltip ineligible payload sent: " .. payload)
+            return
+        end
+
+        local guid        = AP.RT.GetGUID(player)
+        local level       = AP.RT.GetLevel(player)
         local rec         = AP.LoadMastery(guid)
         local masteryRank = rec and rec.mastery or 0
 
@@ -94,7 +123,7 @@ function AP.SendTooltipPayload(player, itemEntry)
         -- Send as a system broadcast visible only to this player.
         -- The client AddOn must filter/hide messages starting with "[APTIP]".
         -- We use SendBroadcastMessage since it is confirmed available.
-        player:SendBroadcastMessage(payload)
+        AP.RT.SendMessage(player, payload)
 
         AP.Debug("Tooltip payload sent: " .. payload)
     end, "AP.SendTooltipPayload")

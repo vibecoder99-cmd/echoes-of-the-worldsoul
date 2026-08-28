@@ -189,21 +189,8 @@ end
 -- ============================================================
 
 local function InitLabDB()
-    pcall(function()
-        CharDBQuery([[
-            CREATE TABLE IF NOT EXISTS `ap_aura_test_results` (
-                `guid`      INT UNSIGNED NOT NULL,
-                `spell_id`  INT UNSIGNED NOT NULL,
-                `theme`     VARCHAR(16) NOT NULL DEFAULT '',
-                `tier`      TINYINT NOT NULL DEFAULT 0,
-                `result`    VARCHAR(16) NOT NULL DEFAULT 'UNTESTED',
-                `notes`     VARCHAR(128) NOT NULL DEFAULT '',
-                `tested_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-                            ON UPDATE CURRENT_TIMESTAMP,
-                PRIMARY KEY (`guid`, `spell_id`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
-        ]])
-    end)
+    AP.Warn("Aura Lab database initialization is externalized; runtime DDL is disabled.")
+    return false
 end
 InitLabDB()
 
@@ -221,7 +208,7 @@ end
 local function GetResult(guid, spellId)
     local key = GetResultKey(guid, spellId)
     if AP.AuraLab.Results[key] then return AP.AuraLab.Results[key] end
-    local q = CharDBQuery(string.format(
+    local q = AP.DB.Query(string.format(
         "SELECT `result` FROM `ap_aura_test_results` WHERE `guid`=%d AND `spell_id`=%d",
         guid, spellId))
     if q then
@@ -239,21 +226,21 @@ local function SetResult(guid, spellId, result, theme)
     if AP.AuraLab.IsTierAssigned(result) then
         tierNum = tonumber(string.sub(result, 2, 2)) or 0
     end
-    CharDBQuery(string.format(
+    AP.DB.ExecuteCritical(string.format(
         "INSERT INTO `ap_aura_test_results` (`guid`,`spell_id`,`theme`,`tier`,`result`) "..
         "VALUES (%d,%d,'%s',%d,'%s') "..
         "ON DUPLICATE KEY UPDATE `result`='%s', `theme`='%s', `tier`=%d",
         guid, spellId, theme, tierNum, result, result, theme, tierNum))
-    CharDBQuery("COMMIT;")
+    AP.DB.Execute("COMMIT;")
 end
 
 local function ClearResult(guid, spellId)
     local key = GetResultKey(guid, spellId)
     AP.AuraLab.Results[key] = nil
-    CharDBQuery(string.format(
+    AP.DB.ExecuteCritical(string.format(
         "DELETE FROM `ap_aura_test_results` WHERE `guid`=%d AND `spell_id`=%d",
         guid, spellId))
-    CharDBQuery("COMMIT;")
+    AP.DB.Execute("COMMIT;")
 end
 
 -- ============================================================
@@ -267,7 +254,7 @@ local MODE_ALL      = "all"
 
 local function LoadAllDbResults(guid)
     local dbSpells = {}
-    local q = CharDBQuery(string.format(
+    local q = AP.DB.Query(string.format(
         "SELECT `spell_id`, `theme`, `tier`, `result` FROM `ap_aura_test_results` WHERE `guid`=%d",
         guid))
     if q then
@@ -388,34 +375,34 @@ local MODE_NAMES = {
 
 local function ClearAllCandidateAuras(player)
     for _, c in ipairs(AP.AuraLab.Candidates) do
-        pcall(function() player:RemoveAura(c.spellId) end)
+        pcall(function() AP.RT.RemoveAura(player,c.spellId) end)
     end
 end
 
 local function ApplyCandidate(player, candidate)
-    local guid = player:GetGUIDLow()
+    local guid = AP.RT.GetGUID(player)
     local state = GetState(guid)
 
     if state.lastApplied then
-        pcall(function() player:RemoveAura(state.lastApplied) end)
+        pcall(function() AP.RT.RemoveAura(player,state.lastApplied) end)
     end
     ClearAllCandidateAuras(player)
 
     if AP.Visage and AP.Visage.AllSpellIds then
         for sid, _ in pairs(AP.Visage.AllSpellIds) do
-            pcall(function() player:RemoveAura(sid) end)
+            pcall(function() AP.RT.RemoveAura(player,sid) end)
         end
     end
 
-    local ok, err = pcall(function() player:AddAura(candidate.spellId, player) end)
+    local ok = AP.RT.AddAura(player, candidate.spellId)
     state.lastApplied = candidate.spellId
 
     if ok then
-        player:SendBroadcastMessage(string.format(
+        AP.RT.SendMessage(player,string.format(
             "|cff9966ff[AuraLab]|r Applied %d (%s). Move 10 sec, then assign tier.",
             candidate.spellId, candidate.note or candidate.theme))
     else
-        player:SendBroadcastMessage(string.format(
+        AP.RT.SendMessage(player,string.format(
             "|cffff4444[AuraLab]|r Apply %d failed: %s", candidate.spellId, tostring(err)))
     end
 end
@@ -442,18 +429,18 @@ local RESULT_CODES = {
 }
 
 function AP.AuraLab.ShowPage(player, npc)
-    local guid = player:GetGUIDLow()
+    local guid = AP.RT.GetGUID(player)
     local state = GetState(guid)
     if not state.filteredList then RefreshFiltered(guid) end
     local total = #state.filteredList
 
-    player:GossipClearMenu()
+    AP.UI.ClearMenu(player)
 
     if total == 0 then
         local header = string.format(
             "Aura Lab -- %s\nNo candidates in this view.\nSwitch mode or exit.",
             MODE_NAMES[state.mode] or state.mode)
-        player:GossipMenuAddItem(0, header, 210, 0)
+        AP.UI.AddItem(player,0, header, 210, 0)
     else
         local idx = state.index
         if idx < 1 then idx = 1; state.index = 1 end
@@ -472,38 +459,38 @@ function AP.AuraLab.ShowPage(player, npc)
             c.spellId, c.theme,
             resultLabel,
             c.note or "")
-        player:GossipMenuAddItem(0, header, 210, 0)
+        AP.UI.AddItem(player,0, header, 210, 0)
 
-        player:GossipMenuAddItem(7, "Apply This Aura", 211, 0)
-        player:GossipMenuAddItem(1, "Clear This Aura", 215, 1)
+        AP.UI.AddItem(player,7, "Apply This Aura", 211, 0)
+        AP.UI.AddItem(player,1, "Clear This Aura", 215, 1)
 
         if state.mode ~= MODE_REJECTED then
-            player:GossipMenuAddItem(0, "---  Assign Tier  ---", 210, 0)
-            player:GossipMenuAddItem(7, "T1 -- Subtle", 212, 1)
-            player:GossipMenuAddItem(7, "T2 -- Low", 212, 2)
-            player:GossipMenuAddItem(7, "T3 -- Medium", 212, 3)
-            player:GossipMenuAddItem(7, "T4 -- Strong", 212, 4)
-            player:GossipMenuAddItem(7, "T5 -- Dramatic", 212, 5)
-            player:GossipMenuAddItem(1, "REJECT -- not usable", 212, 6)
+            AP.UI.AddItem(player,0, "---  Assign Tier  ---", 210, 0)
+            AP.UI.AddItem(player,7, "T1 -- Subtle", 212, 1)
+            AP.UI.AddItem(player,7, "T2 -- Low", 212, 2)
+            AP.UI.AddItem(player,7, "T3 -- Medium", 212, 3)
+            AP.UI.AddItem(player,7, "T4 -- Strong", 212, 4)
+            AP.UI.AddItem(player,7, "T5 -- Dramatic", 212, 5)
+            AP.UI.AddItem(player,1, "REJECT -- not usable", 212, 6)
         end
 
-        player:GossipMenuAddItem(0, "---  Navigate  ---", 210, 0)
-        player:GossipMenuAddItem(6, "<< Previous", 213, 1)
-        player:GossipMenuAddItem(6, "Next >>", 213, 2)
+        AP.UI.AddItem(player,0, "---  Navigate  ---", 210, 0)
+        AP.UI.AddItem(player,6, "<< Previous", 213, 1)
+        AP.UI.AddItem(player,6, "Next >>", 213, 2)
     end
 
-    player:GossipMenuAddItem(0, "---  Mode  ---", 210, 0)
-    player:GossipMenuAddItem(8, "Tiering (eligible only)", 216, 2)
-    player:GossipMenuAddItem(8, "Testing (untested only)", 216, 1)
-    player:GossipMenuAddItem(8, "Rejected (view only)", 216, 3)
-    player:GossipMenuAddItem(8, "Show Summary", 214, 0)
-    player:GossipMenuAddItem(0, "Exit Lab", 215, 0)
+    AP.UI.AddItem(player,0, "---  Mode  ---", 210, 0)
+    AP.UI.AddItem(player,8, "Tiering (eligible only)", 216, 2)
+    AP.UI.AddItem(player,8, "Testing (untested only)", 216, 1)
+    AP.UI.AddItem(player,8, "Rejected (view only)", 216, 3)
+    AP.UI.AddItem(player,8, "Show Summary", 214, 0)
+    AP.UI.AddItem(player,0, "Exit Lab", 215, 0)
 
-    player:GossipSendMenu(1, npc, 210)
+    AP.UI.SendMenu(player,1, npc, 210)
 end
 
 function AP.AuraLab.OnSelect(player, npc, sender, code)
-    local guid = player:GetGUIDLow()
+    local guid = AP.RT.GetGUID(player)
     local state = GetState(guid)
     if not state.filteredList then RefreshFiltered(guid) end
 
@@ -521,7 +508,7 @@ function AP.AuraLab.OnSelect(player, npc, sender, code)
         if c then
             SetResult(guid, c.spellId, result, c.theme)
             local label = GetResultLabel(result)
-            player:SendBroadcastMessage(string.format(
+            AP.RT.SendMessage(player,string.format(
                 "|cff9966ff[AuraLab]|r Assigned %d -> %s.",
                 c.spellId, label))
             RefreshFiltered(guid)
@@ -548,28 +535,28 @@ function AP.AuraLab.OnSelect(player, npc, sender, code)
         if code == 1 then
             local c = GetCurrentCandidate(guid)
             if c then
-                pcall(function() player:RemoveAura(c.spellId) end)
+                pcall(function() AP.RT.RemoveAura(player,c.spellId) end)
             end
             if state.lastApplied then
-                pcall(function() player:RemoveAura(state.lastApplied) end)
+                pcall(function() AP.RT.RemoveAura(player,state.lastApplied) end)
                 state.lastApplied = nil
             end
             ClearAllCandidateAuras(player)
             if AP.Visage and AP.Visage.AllSpellIds then
                 for sid, _ in pairs(AP.Visage.AllSpellIds) do
-                    pcall(function() player:RemoveAura(sid) end)
+                    pcall(function() AP.RT.RemoveAura(player,sid) end)
                 end
             end
-            player:SendBroadcastMessage("|cff9966ff[AuraLab]|r All auras cleared.")
+            AP.RT.SendMessage(player,"|cff9966ff[AuraLab]|r All auras cleared.")
             AP.AuraLab.ShowPage(player, npc)
         else
             ClearAllCandidateAuras(player)
             if AP.Visage and AP.Visage.AllSpellIds then
                 for sid, _ in pairs(AP.Visage.AllSpellIds) do
-                    pcall(function() player:RemoveAura(sid) end)
+                    pcall(function() AP.RT.RemoveAura(player,sid) end)
                 end
             end
-            player:SendBroadcastMessage("|cff9966ff[AuraLab]|r Exited. All test auras cleared.")
+            AP.RT.SendMessage(player,"|cff9966ff[AuraLab]|r Exited. All test auras cleared.")
             if AP.OpenUI then AP.OpenUI(player) end
         end
 
@@ -582,7 +569,7 @@ function AP.AuraLab.OnSelect(player, npc, sender, code)
         }
         local newMode = modeMap[code] or MODE_TIERING
         SetMode(guid, newMode)
-        player:SendBroadcastMessage(string.format(
+        AP.RT.SendMessage(player,string.format(
             "|cff9966ff[AuraLab]|r Switched to: %s (%d candidates)",
             MODE_NAMES[newMode], #state.filteredList))
         AP.AuraLab.ShowPage(player, npc)
@@ -594,7 +581,7 @@ end
 -- ============================================================
 
 function AP.AuraLab.PrintSummary(player)
-    local guid = player:GetGUIDLow()
+    local guid = AP.RT.GetGUID(player)
     local dbSpells = LoadAllDbResults(guid)
     local themes = {}
     local rejectedCount = 0
@@ -638,7 +625,7 @@ function AP.AuraLab.PrintSummary(player)
     end
 
     local function send(msg)
-        player:SendBroadcastMessage(msg)
+        AP.RT.SendMessage(player,msg)
         print("[AuraLab] " .. msg)
     end
 
@@ -674,7 +661,7 @@ end
 -- ============================================================
 
 function AP.AuraLab.DebugApproved(player)
-    local guid = player:GetGUIDLow()
+    local guid = AP.RT.GetGUID(player)
     local dbSpells = LoadAllDbResults(guid)
     local seen = {}
     local eligibleCount = 0
@@ -683,7 +670,7 @@ function AP.AuraLab.DebugApproved(player)
     local totalCount = 0
 
     local function send(msg)
-        player:SendBroadcastMessage(msg)
+        AP.RT.SendMessage(player,msg)
         print("[AuraLab] " .. msg)
     end
 
@@ -733,13 +720,8 @@ end
 -- DB FIX: 62300 was saved as worldsoul/REJECT, should be infernal/T3
 -- ============================================================
 local function FixDbEntries()
-    pcall(function()
-        CharDBQuery("UPDATE `ap_aura_test_results` SET `theme`='infernal', `tier`=3, `result`='T3' WHERE `spell_id`=62300")
-        CharDBQuery("UPDATE `ap_aura_test_results` SET `theme`='worldsoul', `tier`=4, `result`='T4' WHERE `spell_id`=46933")
-        CharDBQuery("UPDATE `ap_aura_test_results` SET `tier`=2, `result`='T2' WHERE `spell_id`=49411")
-        CharDBQuery("UPDATE `ap_aura_test_results` SET `tier`=2, `result`='T2' WHERE `spell_id`=44808")
-        CharDBQuery("COMMIT;")
-    end)
+    AP.Warn("Aura Lab data corrections are externalized; runtime migration is disabled.")
+    return false
 end
 FixDbEntries()
 
@@ -748,7 +730,7 @@ FixDbEntries()
 -- ============================================================
 
 function AP.AuraLab.DumpToFile(player)
-    local guid = player:GetGUIDLow()
+    local guid = AP.RT.GetGUID(player)
     local dbSpells = LoadAllDbResults(guid)
     local seen = {}
     local lines = { "AURALAB_DUMP_START" }
@@ -780,10 +762,10 @@ function AP.AuraLab.DumpToFile(player)
     if f then
         f:write(table.concat(lines, "\n") .. "\n")
         f:close()
-        player:SendBroadcastMessage("|cff9966ff[AuraLab]|r Dumped to " .. path)
+        AP.RT.SendMessage(player,"|cff9966ff[AuraLab]|r Dumped to " .. path)
         print("[AuraLab] Dumped " .. (#lines - 2) .. " entries to " .. path)
     else
-        player:SendBroadcastMessage("|cffff4444[AuraLab]|r Failed to write dump file.")
+        AP.RT.SendMessage(player,"|cffff4444[AuraLab]|r Failed to write dump file.")
         print("[AuraLab] ERROR: could not open " .. path .. " for writing")
     end
 end
@@ -795,11 +777,11 @@ end
 function AP.AuraLab.HandleChat(player, lower)
     if not string.find(lower, "^#ap aura") then return false end
     if not AP.IsGM(player) then
-        player:SendBroadcastMessage("|cffff4444[Worldsoul]|r GM access required.")
+        AP.RT.SendMessage(player,"|cffff4444[Worldsoul]|r GM access required.")
         return true
     end
 
-    local guid = player:GetGUIDLow()
+    local guid = AP.RT.GetGUID(player)
     local state = GetState(guid)
 
     if lower == "#ap auralab" then
@@ -807,10 +789,10 @@ function AP.AuraLab.HandleChat(player, lower)
             local c = AP.Visage.Cache[guid]
             c.primary_enabled = 0
             c.secondary_enabled = 0
-            CharDBQuery(string.format(
+            AP.DB.ExecuteCritical(string.format(
                 "UPDATE `ap_visage` SET `primary_enabled`=0, `secondary_enabled`=0 WHERE `guid`=%d",
                 guid))
-            CharDBQuery("COMMIT;")
+            AP.DB.Execute("COMMIT;")
         end
         SetMode(guid, MODE_TIERING)
         AP.AuraLab.ShowPage(player, player)
@@ -819,7 +801,7 @@ function AP.AuraLab.HandleChat(player, lower)
 
     if lower == "#ap aura testing" then
         SetMode(guid, MODE_TESTING)
-        player:SendBroadcastMessage(string.format(
+        AP.RT.SendMessage(player,string.format(
             "|cff9966ff[AuraLab]|r Testing mode: %d untested candidates.",
             #state.filteredList))
         AP.AuraLab.ShowPage(player, player)
@@ -828,7 +810,7 @@ function AP.AuraLab.HandleChat(player, lower)
 
     if lower == "#ap aura tiering" then
         SetMode(guid, MODE_TIERING)
-        player:SendBroadcastMessage(string.format(
+        AP.RT.SendMessage(player,string.format(
             "|cff9966ff[AuraLab]|r Tiering mode: %d eligible candidates.",
             #state.filteredList))
         AP.AuraLab.ShowPage(player, player)
@@ -843,7 +825,7 @@ function AP.AuraLab.HandleChat(player, lower)
 
     if lower == "#ap aura rejected" then
         SetMode(guid, MODE_REJECTED)
-        player:SendBroadcastMessage(string.format(
+        AP.RT.SendMessage(player,string.format(
             "|cff9966ff[AuraLab]|r Rejected view: %d rejected candidates.",
             #state.filteredList))
         AP.AuraLab.ShowPage(player, player)
@@ -856,7 +838,7 @@ function AP.AuraLab.HandleChat(player, lower)
         if state.index < total then state.index = state.index + 1 end
         local c = GetCurrentCandidate(guid)
         if c then
-            player:SendBroadcastMessage(string.format(
+            AP.RT.SendMessage(player,string.format(
                 "|cff9966ff[AuraLab]|r Now on %d/%d: spell %d (%s)",
                 state.index, total, c.spellId, c.note or c.theme))
         end
@@ -869,7 +851,7 @@ function AP.AuraLab.HandleChat(player, lower)
         local c = GetCurrentCandidate(guid)
         if c then
             local total = #state.filteredList
-            player:SendBroadcastMessage(string.format(
+            AP.RT.SendMessage(player,string.format(
                 "|cff9966ff[AuraLab]|r Now on %d/%d: spell %d (%s)",
                 state.index, total, c.spellId, c.note or c.theme))
         end
@@ -884,7 +866,7 @@ function AP.AuraLab.HandleChat(player, lower)
 
     if lower == "#ap aura clear" then
         ClearAllCandidateAuras(player)
-        player:SendBroadcastMessage("|cff9966ff[AuraLab]|r All test auras cleared.")
+        AP.RT.SendMessage(player,"|cff9966ff[AuraLab]|r All test auras cleared.")
         return true
     end
 
@@ -910,7 +892,7 @@ function AP.AuraLab.HandleChat(player, lower)
         if sid then
             ClearResult(guid, sid)
             RefreshFiltered(guid)
-            player:SendBroadcastMessage(string.format(
+            AP.RT.SendMessage(player,string.format(
                 "|cff9966ff[AuraLab]|r Reset result for spell %d.", sid))
         end
         return true
@@ -925,7 +907,7 @@ function AP.AuraLab.HandleChat(player, lower)
             local theme = cand and cand.theme or ""
             SetResult(guid, sid, "APPROVED", theme)
             RefreshFiltered(guid)
-            player:SendBroadcastMessage(string.format(
+            AP.RT.SendMessage(player,string.format(
                 "|cff9966ff[AuraLab]|r Approved spell %d for tiering.", sid))
         end
         return true
@@ -946,7 +928,7 @@ function AP.AuraLab.HandleChat(player, lower)
         if c then
             SetResult(guid, c.spellId, result, c.theme)
             local label = GetResultLabel(result)
-            player:SendBroadcastMessage(string.format(
+            AP.RT.SendMessage(player,string.format(
                 "|cff9966ff[AuraLab]|r Assigned %d -> %s.", c.spellId, label))
             RefreshFiltered(guid)
             if state.index > #state.filteredList then
@@ -954,7 +936,7 @@ function AP.AuraLab.HandleChat(player, lower)
             end
             local next = GetCurrentCandidate(guid)
             if next then
-                player:SendBroadcastMessage(string.format(
+                AP.RT.SendMessage(player,string.format(
                     "|cff9966ff[AuraLab]|r Next: %d/%d spell %d (%s)",
                     state.index, #state.filteredList, next.spellId, next.note or next.theme))
             end

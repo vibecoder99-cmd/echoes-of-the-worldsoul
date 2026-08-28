@@ -51,17 +51,9 @@ AP.Visage.ThemeOrder = { "worldsoul", "ethereal", "verdant", "void", "infernal" 
 local TIER_NAMES = { "T1 Subtle", "T2 Low", "T3 Medium", "T4 Strong", "T5 Dramatic" }
 
 -- ============================================================
--- DB MIGRATION
--- ============================================================
-local function MigrateVisageDb()
-    pcall(function()
-        CharDBQuery("ALTER TABLE `ap_visage` ADD COLUMN `primary_tier_selected` TINYINT UNSIGNED NOT NULL DEFAULT 0")
-    end)
-    pcall(function()
-        CharDBQuery("ALTER TABLE `ap_visage` ADD COLUMN `secondary_tier_selected` TINYINT UNSIGNED NOT NULL DEFAULT 0")
-    end)
-end
-MigrateVisageDb()
+-- DB SCHEMA READINESS
+-- Base-table and tier-column installation/repair are externalized.
+-- AP.DB.ValidateSchema performs read-only readiness checks.
 
 -- ============================================================
 -- SESSION CACHE
@@ -80,7 +72,7 @@ function AP.Visage.LoadForChar(guid)
         chat_flavor_enabled    = 1,
     }
     local ok, _ = pcall(function()
-        local q = CharDBQuery(string.format(
+        local q = AP.DB.Query(string.format(
             "SELECT `primary_theme`,`primary_enabled`,`secondary_theme`,"..
             "`secondary_enabled`,`flash_enabled`,`chat_flavor_enabled`,"..
             "`primary_tier_selected`,`secondary_tier_selected` "..
@@ -100,7 +92,7 @@ function AP.Visage.LoadForChar(guid)
     end)
     if not ok then
         pcall(function()
-            local q = CharDBQuery(string.format(
+            local q = AP.DB.Query(string.format(
                 "SELECT `primary_theme`,`primary_enabled`,`secondary_theme`,"..
                 "`secondary_enabled`,`flash_enabled`,`chat_flavor_enabled` "..
                 "FROM `ap_visage` WHERE `guid` = %d",
@@ -122,7 +114,7 @@ end
 function AP.Visage.SaveForChar(guid)
     local c = AP.Visage.Cache[guid]
     if not c then return end
-    CharDBExecute(string.format(
+    AP.DB.ExecuteAsync(string.format(
         "INSERT INTO `ap_visage` (`guid`,`primary_theme`,`primary_enabled`,"..
         "`secondary_theme`,`secondary_enabled`,`flash_enabled`,`chat_flavor_enabled`,"..
         "`primary_tier_selected`,`secondary_tier_selected`) "..
@@ -142,7 +134,7 @@ function AP.Visage.SaveForChar(guid)
         c.flash_enabled, c.chat_flavor_enabled,
         c.primary_tier_selected or 0, c.secondary_tier_selected or 0
     ))
-    CharDBExecute("COMMIT")
+    AP.DB.ExecuteAsync("COMMIT")
 end
 
 -- ============================================================
@@ -166,7 +158,7 @@ function AP.Visage.GetSecondaryTier(totalInvested)
 end
 
 function AP.Visage.GetAttunedCount(guid)
-    local q = CharDBQuery(string.format(
+    local q = AP.DB.Query(string.format(
         "SELECT COUNT(*) FROM `ap_item_attune` WHERE `guid` = %d AND `attuned` = 1",
         guid
     ))
@@ -175,7 +167,7 @@ function AP.Visage.GetAttunedCount(guid)
 end
 
 function AP.Visage.GetTotalCrucibleInvested(accountId)
-    local q = CharDBQuery(string.format(
+    local q = AP.DB.Query(string.format(
         "SELECT SUM(`invested`) FROM `ap_aether_sinks` WHERE `account_id` = %d",
         accountId
     ))
@@ -212,8 +204,8 @@ end
 
 function AP.Visage.ApplyAuras(player)
     local ok, err = pcall(function()
-        local guid      = player:GetGUIDLow()
-        local accountId = player:GetAccountId()
+        local guid      = AP.RT.GetGUID(player)
+        local accountId = AP.RT.GetAccountId(player)
 
         if not AP.Visage.Cache[guid] then
             AP.Visage.LoadForChar(guid)
@@ -246,16 +238,16 @@ function AP.Visage.ApplyAuras(player)
 
         for spellId, _ in pairs(AP.Visage.AllSpellIds) do
             if spellId ~= targetPrimary and spellId ~= targetSecondary then
-                pcall(function() player:RemoveAura(spellId) end)
+                pcall(function() AP.RT.RemoveAura(player,spellId) end)
             end
         end
 
         if targetPrimary then
-            pcall(function() player:AddAura(targetPrimary, player) end)
+            pcall(function() AP.RT.AddAura(player,targetPrimary, player) end)
         end
 
         if targetSecondary and targetSecondary ~= targetPrimary then
-            pcall(function() player:AddAura(targetSecondary, player) end)
+            pcall(function() AP.RT.AddAura(player,targetSecondary, player) end)
         end
     end)
     if not ok then
@@ -268,7 +260,7 @@ end
 -- ============================================================
 
 function AP.Visage.SendFlash(player, title, subtitle)
-    local c = AP.Visage.Cache[player:GetGUIDLow()]
+    local c = AP.Visage.Cache[AP.RT.GetGUID(player)]
     if c and c.flash_enabled == 0 then return end
     local payload
     if subtitle and subtitle ~= "" then
@@ -276,7 +268,51 @@ function AP.Visage.SendFlash(player, title, subtitle)
     else
         payload = "[EOTW_FLASH]" .. title
     end
-    player:SendBroadcastMessage(payload)
+    AP.RT.SendMessage(player,payload)
+end
+
+-- ============================================================
+-- BOSS FLASH DEDUP + DISPATCH
+-- In-memory, per-player, encounter-keyed cooldown. Prevents a
+-- multi-unit encounter (several creature entries sharing one
+-- message) or a boss that could theoretically qualify on both
+-- the XP-gated and kill-creature-gated trigger paths from
+-- flashing more than once for the same kill/encounter.
+-- Bounded window, not a permanent flag: a legitimate future
+-- re-clear of the same boss can flash again once the window
+-- expires.
+--
+-- Note: entries are only ever overwritten, never pruned (no
+-- window-expiry sweep, no cleanup on logout), so this table
+-- grows unboundedly (but slowly) for the lifetime of the
+-- worldserver process. Accepted tradeoff for now; periodic
+-- pruning is a candidate for a future pass if it ever becomes
+-- a real memory concern.
+-- ============================================================
+AP.Visage._bossFlashDedup = AP.Visage._bossFlashDedup or {}
+AP.Visage.BossFlashDedupWindowSec = AP.Visage.BossFlashDedupWindowSec or 60
+
+function AP.Visage.TryBossFlash(player, entry, isBossRaid, isBossDungeonFinal)
+    if not player or not entry or entry <= 0 then return false end
+
+    local flash = AP.GetBossFlash and AP.GetBossFlash(entry, isBossRaid, isBossDungeonFinal)
+    if not flash then return false end
+
+    local guid         = AP.RT.GetGUID(player)
+    if not guid then return false end
+    local encounterKey = (AP.BossEncounterKey and AP.BossEncounterKey[entry]) or entry
+    local dedupKey      = guid .. ":" .. tostring(encounterKey)
+    local now           = os.time()
+    local dedup         = AP.Visage._bossFlashDedup
+
+    local lastFired = dedup[dedupKey]
+    if lastFired and (now - lastFired) < AP.Visage.BossFlashDedupWindowSec then
+        return false
+    end
+
+    dedup[dedupKey] = now
+    AP.Visage.SendFlash(player, flash[1], flash[2])
+    return true
 end
 
 -- ============================================================
@@ -287,7 +323,7 @@ AP.Visage.LastKnownPrimaryTier = AP.Visage.LastKnownPrimaryTier or {}
 AP.Visage.LastKnownThemeUnlocks = AP.Visage.LastKnownThemeUnlocks or {}
 
 function AP.Visage.CheckAttunementMilestone(player, newAttunedCount)
-    local guid = player:GetGUIDLow()
+    local guid = AP.RT.GetGUID(player)
     local newTier = AP.Visage.GetPrimaryTier(newAttunedCount)
     local oldTier = AP.Visage.LastKnownPrimaryTier[guid] or 0
 
@@ -309,7 +345,7 @@ function AP.Visage.CheckAttunementMilestone(player, newAttunedCount)
             local key = guid .. "_" .. theme
             if not AP.Visage.LastKnownThemeUnlocks[key] and newAttunedCount >= req then
                 AP.Visage.LastKnownThemeUnlocks[key] = true
-                player:SendBroadcastMessage(string.format(
+                AP.RT.SendMessage(player,string.format(
                     "|cff9966ff[Worldsoul]|r The |cff%s%s|r Visage has been unlocked. "..
                     "Find it in your Visage menu.",
                     AP.Visage.ThemeColors[theme] or "ffffff",
@@ -327,7 +363,7 @@ end
 AP.Visage.LastKnownCrucibleTier = AP.Visage.LastKnownCrucibleTier or {}
 
 function AP.Visage.CheckCrucibleMilestone(player, totalInvested)
-    local guid = player:GetGUIDLow()
+    local guid = AP.RT.GetGUID(player)
     local newTier = AP.Visage.GetSecondaryTier(totalInvested)
     local oldTier = AP.Visage.LastKnownCrucibleTier[guid] or 0
 
@@ -358,8 +394,8 @@ end
 -- ============================================================
 
 function AP.Visage.ShowPage(player, npc)
-    local guid      = player:GetGUIDLow()
-    local accountId = player:GetAccountId()
+    local guid      = AP.RT.GetGUID(player)
+    local accountId = AP.RT.GetAccountId(player)
 
     if not AP.Visage.Cache[guid] then
         AP.Visage.LoadForChar(guid)
@@ -380,7 +416,7 @@ function AP.Visage.ShowPage(player, npc)
     local priTierLabel = (c.primary_tier_selected == 0) and "Auto" or (TIER_NAMES[priEffective] or "?")
     local secTierLabel = (c.secondary_tier_selected == 0) and "Auto" or (TIER_NAMES[secEffective] or "?")
 
-    player:GossipClearMenu()
+    AP.UI.ClearMenu(player)
 
     local primaryStatus = c.primary_enabled == 1 and "|cff00ff00ON|r" or "|cffff4444OFF|r"
     local secondaryStatus = c.secondary_enabled == 1 and "|cff00ff00ON|r" or "|cffff4444OFF|r"
@@ -398,83 +434,83 @@ function AP.Visage.ShowPage(player, npc)
         secondaryStatus, AP.Visage.ThemeNames[c.secondary_theme] or "?", secTierLabel, secEffective, secondaryMax,
         flashStatus, flavorStatus
     )
-    player:GossipMenuAddItem(0, header, 200, 0, false, "", 0)
+    AP.UI.AddItem(player,0, header, 200, 0, false, "", 0)
 
     -- Toggles
-    player:GossipMenuAddItem(0,
+    AP.UI.AddItem(player,0,
         c.primary_enabled == 1 and "Primary Aura: Turn OFF" or "Primary Aura: Turn ON",
         202, 0, false, "", 0)
-    player:GossipMenuAddItem(0,
+    AP.UI.AddItem(player,0,
         c.secondary_enabled == 1 and "Secondary Aura: Turn OFF" or "Secondary Aura: Turn ON",
         203, 0, false, "", 0)
-    player:GossipMenuAddItem(0,
+    AP.UI.AddItem(player,0,
         c.flash_enabled == 1 and "Victory Flash: Turn OFF" or "Victory Flash: Turn ON",
         204, 0, false, "", 0)
-    player:GossipMenuAddItem(0,
+    AP.UI.AddItem(player,0,
         c.chat_flavor_enabled == 1 and "Lore Notifications: Turn OFF" or "Lore Notifications: Turn ON",
         205, 0, false, "", 0)
 
     -- Primary theme
-    player:GossipMenuAddItem(0, "-- Primary Theme --", 200, 0, false, "", 0)
+    AP.UI.AddItem(player,0, "-- Primary Theme --", 200, 0, false, "", 0)
     for i, theme in ipairs(AP.Visage.ThemeOrder) do
         local unlocked = AP.Visage.IsThemeUnlocked(theme, attunedCount)
         local current  = c.primary_theme == theme and " [CURRENT]" or ""
         if unlocked then
-            player:GossipMenuAddItem(0, AP.Visage.ThemeNames[theme] .. current, 206, i, false, "", 0)
+            AP.UI.AddItem(player,0, AP.Visage.ThemeNames[theme] .. current, 206, i, false, "", 0)
         else
-            player:GossipMenuAddItem(0, string.format("|cff888888%s (%d echoes)|r",
+            AP.UI.AddItem(player,0, string.format("|cff888888%s (%d echoes)|r",
                 AP.Visage.ThemeNames[theme], AP.Visage.ThemeUnlocks[theme]), 200, 0, false, "", 0)
         end
     end
 
     -- Primary tier
-    player:GossipMenuAddItem(0, "-- Primary Intensity --", 200, 0, false, "", 0)
+    AP.UI.AddItem(player,0, "-- Primary Intensity --", 200, 0, false, "", 0)
     local priAutoLabel = "Auto (highest)" .. ((c.primary_tier_selected == 0) and " [CURRENT]" or "")
-    player:GossipMenuAddItem(0, priAutoLabel, 209, 0, false, "", 0)
+    AP.UI.AddItem(player,0, priAutoLabel, 209, 0, false, "", 0)
     for t = 1, 5 do
         local current = (c.primary_tier_selected == t) and " [CURRENT]" or ""
         if t <= primaryMax then
-            player:GossipMenuAddItem(0, TIER_NAMES[t] .. current, 209, t, false, "", 0)
+            AP.UI.AddItem(player,0, TIER_NAMES[t] .. current, 209, t, false, "", 0)
         else
             local req = AP.Visage.PrimaryTiers[t] or 0
-            player:GossipMenuAddItem(0, string.format("|cff888888%s (%d echoes)|r", TIER_NAMES[t], req), 200, 0, false, "", 0)
+            AP.UI.AddItem(player,0, string.format("|cff888888%s (%d echoes)|r", TIER_NAMES[t], req), 200, 0, false, "", 0)
         end
     end
 
     -- Secondary theme
-    player:GossipMenuAddItem(0, "-- Secondary Theme --", 200, 0, false, "", 0)
+    AP.UI.AddItem(player,0, "-- Secondary Theme --", 200, 0, false, "", 0)
     for i, theme in ipairs(AP.Visage.ThemeOrder) do
         local unlocked = AP.Visage.IsThemeUnlocked(theme, attunedCount)
         local current  = c.secondary_theme == theme and " [CURRENT]" or ""
         if unlocked then
-            player:GossipMenuAddItem(0, AP.Visage.ThemeNames[theme] .. current, 207, i, false, "", 0)
+            AP.UI.AddItem(player,0, AP.Visage.ThemeNames[theme] .. current, 207, i, false, "", 0)
         else
-            player:GossipMenuAddItem(0, string.format("|cff888888%s (%d echoes)|r",
+            AP.UI.AddItem(player,0, string.format("|cff888888%s (%d echoes)|r",
                 AP.Visage.ThemeNames[theme], AP.Visage.ThemeUnlocks[theme]), 200, 0, false, "", 0)
         end
     end
 
     -- Secondary tier
-    player:GossipMenuAddItem(0, "-- Secondary Intensity --", 200, 0, false, "", 0)
+    AP.UI.AddItem(player,0, "-- Secondary Intensity --", 200, 0, false, "", 0)
     local secAutoLabel = "Auto (highest)" .. ((c.secondary_tier_selected == 0) and " [CURRENT]" or "")
-    player:GossipMenuAddItem(0, secAutoLabel, 217, 0, false, "", 0)
+    AP.UI.AddItem(player,0, secAutoLabel, 217, 0, false, "", 0)
     for t = 1, 5 do
         local current = (c.secondary_tier_selected == t) and " [CURRENT]" or ""
         if t <= secondaryMax then
-            player:GossipMenuAddItem(0, TIER_NAMES[t] .. current, 217, t, false, "", 0)
+            AP.UI.AddItem(player,0, TIER_NAMES[t] .. current, 217, t, false, "", 0)
         else
             local req = AP.Visage.SecondaryTiers[t] or 0
             local reqLabel = req >= 1000000 and string.format("%dM", req / 1000000) or string.format("%dk", req / 1000)
-            player:GossipMenuAddItem(0, string.format("|cff888888%s (%s invested)|r", TIER_NAMES[t], reqLabel), 200, 0, false, "", 0)
+            AP.UI.AddItem(player,0, string.format("|cff888888%s (%s invested)|r", TIER_NAMES[t], reqLabel), 200, 0, false, "", 0)
         end
     end
 
-    player:GossipMenuAddItem(0, "<< Back to Main Menu", 208, 0, false, "", 0)
-    player:GossipSendMenu(1, npc, 201)
+    AP.UI.AddItem(player,0, "<< Back to Main Menu", 208, 0, false, "", 0)
+    AP.UI.SendMenu(player,1, npc, 201)
 end
 
 function AP.Visage.OnSelect(player, npc, sender, code)
-    local guid = player:GetGUIDLow()
+    local guid = AP.RT.GetGUID(player)
     if not AP.Visage.Cache[guid] then
         AP.Visage.LoadForChar(guid)
     end
@@ -519,7 +555,7 @@ function AP.Visage.OnSelect(player, npc, sender, code)
             if AP.API and AP.API.DispatchHook then
                 AP.API.DispatchHook("OnVisageChanged", { guid=guid, field="primary_theme", oldValue=old, newValue=theme })
             end
-            player:SendBroadcastMessage(string.format(
+            AP.RT.SendMessage(player,string.format(
                 "|cff9966ff[Worldsoul]|r Primary Visage set to %s.",
                 AP.Visage.ThemeNames[theme]))
         end
@@ -536,7 +572,7 @@ function AP.Visage.OnSelect(player, npc, sender, code)
             if AP.API and AP.API.DispatchHook then
                 AP.API.DispatchHook("OnVisageChanged", { guid=guid, field="secondary_theme", oldValue=old, newValue=theme })
             end
-            player:SendBroadcastMessage(string.format(
+            AP.RT.SendMessage(player,string.format(
                 "|cff9966ff[Worldsoul]|r Secondary Visage set to %s.",
                 AP.Visage.ThemeNames[theme]))
         end
@@ -552,7 +588,7 @@ function AP.Visage.OnSelect(player, npc, sender, code)
         AP.Visage.SaveForChar(guid)
         AP.Visage.ApplyAuras(player)
         local label = code == 0 and "Auto (highest)" or (TIER_NAMES[code] or "?")
-        player:SendBroadcastMessage(string.format(
+        AP.RT.SendMessage(player,string.format(
             "|cff9966ff[Worldsoul]|r Primary intensity set to %s.", label))
         AP.Visage.ShowPage(player, npc)
 
@@ -561,7 +597,7 @@ function AP.Visage.OnSelect(player, npc, sender, code)
         AP.Visage.SaveForChar(guid)
         AP.Visage.ApplyAuras(player)
         local label = code == 0 and "Auto (highest)" or (TIER_NAMES[code] or "?")
-        player:SendBroadcastMessage(string.format(
+        AP.RT.SendMessage(player,string.format(
             "|cff9966ff[Worldsoul]|r Secondary intensity set to %s.", label))
         AP.Visage.ShowPage(player, npc)
     end
@@ -573,11 +609,11 @@ end
 
 local function OnLogin_Visage(event, player)
     local ok, err = pcall(function()
-        local guid = player:GetGUIDLow()
+        local guid = AP.RT.GetGUID(player)
         AP.Visage.LoadForChar(guid)
         local playerGuid = guid
-        CreateLuaEvent(function()
-            local livePlayer = GetPlayerByGUID(playerGuid)
+        AP.RT.CreateTimer(function()
+            local livePlayer = AP.RT.GetPlayerByGUID(playerGuid)
             if not livePlayer then return end
             AP.Visage.ApplyAuras(livePlayer)
         end, 3000, 1)
@@ -587,6 +623,6 @@ local function OnLogin_Visage(event, player)
     end
 end
 
-RegisterPlayerEvent(3, OnLogin_Visage)
+AP.RT.RegisterEvent("player", 3, OnLogin_Visage)
 
 print("[EotW Visage] Cosmetic Ascension system loaded (v2 - tier selection).")

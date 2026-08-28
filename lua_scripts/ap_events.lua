@@ -5,18 +5,18 @@
 -- (at your option) any later version. See LICENSE for the full text.
 -- ============================================================
 -- ap_events.lua
--- Echoes of the Worldsoul — Game Event Handlers
+-- Echoes of the Worldsoul â€” Game Event Handlers
 -- ============================================================
 -- EVENT ID REFERENCE (confirmed from Hooks.h):
 --   3  = PLAYER_EVENT_ON_LOGIN
 --   4  = PLAYER_EVENT_ON_LOGOUT
 --   7  = PLAYER_EVENT_ON_KILL_CREATURE
---   12 = PLAYER_EVENT_ON_GIVE_XP      (xp, creature, group_bonus — creature nil for quests)
---   18 = PLAYER_EVENT_ON_CHAT          (SAY/YELL — all players incl. GM)
+--   12 = PLAYER_EVENT_ON_GIVE_XP      (xp, creature, group_bonus â€” creature nil for quests)
+--   18 = PLAYER_EVENT_ON_CHAT          (SAY/YELL â€” all players incl. GM)
 --   19 = PLAYER_EVENT_ON_WHISPER       (whisper received)
 --   20 = PLAYER_EVENT_ON_GROUP_CHAT
 --   21 = PLAYER_EVENT_ON_GUILD_CHAT
---   22 = PLAYER_EVENT_ON_CHANNEL_CHAT  (NOT "GM chat" — it's channel chat)
+--   22 = PLAYER_EVENT_ON_CHANNEL_CHAT  (NOT "GM chat" â€” it's channel chat)
 --   29 = PLAYER_EVENT_ON_EQUIP
 --   42 = PLAYER_EVENT_ON_COMMAND       (works from console AND in-game /)
 --   54 = PLAYER_EVENT_ON_COMPLETE_QUEST
@@ -37,30 +37,30 @@ end
 -- Returns true if granted, false if already claimed.
 -- ============================================================
 local function GrantMilestoneAether(player, milestoneType, milestoneId, amount, label)
-    local accountId = player:GetAccountId()
+    local accountId = AP.RT.GetAccountId(player)
 
-    local q = CharDBQuery(string.format(
+    local q = AP.DB.Query(string.format(
         "SELECT 1 FROM `ap_aether_milestones` "..
         "WHERE `account_id` = %d AND `milestone_type` = '%s' AND `milestone_id` = %d LIMIT 1;",
         accountId, milestoneType, milestoneId
     ))
     if q then return false end
 
-    CharDBExecute(string.format(
+    AP.DB.ExecuteCritical(string.format(
         "INSERT IGNORE INTO `ap_aether_milestones` "..
         "(`account_id`, `milestone_type`, `milestone_id`) VALUES (%d, '%s', %d)",
         accountId, milestoneType, milestoneId
-    ))
+    ), "ap_events.milestone_claim")
 
-    local guid = player:GetGUIDLow()
-    CharDBExecute(string.format(
+    local guid = AP.RT.GetGUID(player)
+    AP.DB.ExecuteCritical(string.format(
         "INSERT INTO `ap_mastery` (`guid`, `aether`, `mastery`) VALUES (%d, %d, 0) "..
         "ON DUPLICATE KEY UPDATE `aether` = `aether` + %d",
         guid, amount, amount
-    ))
-    CharDBExecute("COMMIT")
+    ), "ap_events.milestone_aether")
+    AP.DB.Execute("COMMIT")
 
-    player:SendBroadcastMessage(string.format(
+    AP.RT.SendMessage(player,string.format(
         "|cff9966ff[Worldsoul]|r %s: |cffffff00+%d Essence|r",
         label, amount
     ))
@@ -126,19 +126,8 @@ local AP_LOREMASTER_NORTHREND_ZONES = {
 AP._session      = AP._session or {}
 AP._questPending = AP._questPending or {}
 
--- DB migration for threat persistence
-pcall(function()
-    CharDBQuery("ALTER TABLE `ap_session_state` ADD COLUMN `threat_level` TINYINT UNSIGNED NOT NULL DEFAULT 0")
-end)
-pcall(function()
-    CharDBQuery("ALTER TABLE `ap_session_state` ADD COLUMN `threat_momentum` FLOAT NOT NULL DEFAULT 0")
-end)
-pcall(function()
-    CharDBQuery("ALTER TABLE `ap_session_state` ADD COLUMN `threat_debt_kills` SMALLINT UNSIGNED NOT NULL DEFAULT 0")
-end)
-pcall(function()
-    CharDBQuery("ALTER TABLE `ap_session_state` ADD COLUMN `threat_debt_mult` FLOAT NOT NULL DEFAULT 1")
-end)
+-- Threat schema installation/repair is externalized to the database package.
+-- AP.DB.ValidateSchema performs read-only table/column readiness checks.
 
 local function GetSession(guid)
     if not AP._session[guid] then
@@ -156,7 +145,7 @@ end
 
 local function LoadThreatFromDB(guid, session)
     pcall(function()
-        local q = CharDBQuery(string.format(
+        local q = AP.DB.Query(string.format(
             "SELECT `threat_level`, `threat_momentum`, `threat_debt_kills`, `threat_debt_mult` "..
             "FROM `ap_session_state` WHERE `guid` = %d", guid))
         if q then
@@ -170,12 +159,12 @@ end
 
 local function SaveThreatToDB(guid, session)
     pcall(function()
-        CharDBQuery(string.format(
+        AP.DB.ExecuteAsync(string.format(
             "UPDATE `ap_session_state` SET `threat_level`=%d, `threat_momentum`=%.4f, "..
             "`threat_debt_kills`=%d, `threat_debt_mult`=%.4f WHERE `guid`=%d",
             session.threat, session.momentum,
             session.debtKills or 0, session.debtMult or 1.0, guid))
-        CharDBQuery("COMMIT;")
+        AP.DB.ExecuteAsync("COMMIT;")
     end)
 end
 AP.SaveThreatToDB = SaveThreatToDB
@@ -184,24 +173,31 @@ AP.SaveThreatToDB = SaveThreatToDB
 -- PARTY SIZE HELPER
 -- ============================================================
 local function GetPartySize(player)
-    local ok, group = pcall(function() return player:GetGroup() end)
-    if not ok or not group then return 1 end
-    local ok2, count = pcall(function() return group:GetMembersCount() end)
-    if not ok2 or not count then return 1 end
+    local group = AP.RT.GetGroup(player)
+    if not group then return 1 end
+    local count = AP.RT.GetGroupMembersCount(group)
+    if not count then return 1 end
     return math.max(1, count)
 end
 
 -- ============================================================
 -- CREATURE RANK HELPER
+-- Rank cache: avoids querying creature_template on every mob kill.
+-- Only queries WorldDB once per unique creature entry, then caches the result.
+-- nil = unchecked, else the cached rank value.
 -- ============================================================
+AP._creatureRankCache = AP._creatureRankCache or {}
+
 local function GetCreatureRank(creature)
-    local entry = creature:GetEntry()
+    local entry = AP.RT.GetCreatureEntry(creature)
+    if AP._creatureRankCache[entry] ~= nil then return AP._creatureRankCache[entry] end
     local rank  = 0
     AP.Try(function()
-        local q = WorldDBQuery(string.format(
+        local q = AP.DB.WorldQuery(string.format(
             "SELECT `rank` FROM `creature_template` WHERE `entry` = %d LIMIT 1;", entry))
         if q then rank = tonumber(q:GetUInt8(0)) or 0 end
     end, "GetCreatureRank")
+    AP._creatureRankCache[entry] = rank
     return rank
 end
 
@@ -209,11 +205,11 @@ end
 -- INSTANCE CHECK
 -- ============================================================
 local function IsInInstance(player)
-    local map = player:GetMap()
+    local map = AP.RT.GetMap(player)
     if not map then return false end
-    local ok, result = pcall(function() return map:IsInstance() end)
-    if ok and result ~= nil then return result end
-    local mapId = player:GetMapId()
+    local result = AP.RT.IsMapInstance(map)
+    if result ~= nil then return result end
+    local mapId = AP.RT.GetMapId(player)
     return mapId ~= 0 and mapId ~= 1 and mapId ~= 530 and mapId ~= 571
 end
 
@@ -265,10 +261,10 @@ local function IsInstanceBoss(entry, inInstance)
     if not inInstance or entry <= 0 then return false end
     -- Return cached result if we've seen this entry before.
     if AP._bossCache[entry] ~= nil then return AP._bossCache[entry] end
-    -- Query instance_encounters — fires at most once per unique entry.
+    -- Query instance_encounters â€” fires at most once per unique entry.
     local isBoss = false
     AP.Try(function()
-        local q = WorldDBQuery(string.format(
+        local q = AP.DB.WorldQuery(string.format(
             "SELECT 1 FROM `instance_encounters` WHERE `creditEntry` = %d LIMIT 1;",
             entry))
         isBoss = (q ~= nil)
@@ -277,21 +273,22 @@ local function IsInstanceBoss(entry, inInstance)
     if isBoss then AP.Log("Boss confirmed: entry=" .. entry) end
     return isBoss
 end
+AP.IsInstanceBoss = IsInstanceBoss
 
 -- ============================================================
--- XP GAIN HANDLER — PLAYER_EVENT_ON_GIVE_XP = 12
+-- XP GAIN HANDLER â€” PLAYER_EVENT_ON_GIVE_XP = 12
 -- Confirmed from live probe: fires with (event, player, xp, creature, bonus)
 -- creature is nil for quest/exploration XP.
 -- This is the Synastria design: attunement progress is tied to
 -- XP earned, not kill count. All XP sources contribute naturally.
 -- ============================================================
-RegisterPlayerEvent(12, function(event, player, xp, creature, bonus)
+AP.RT.RegisterEvent("player", 12, function(event, player, xp, creature, bonus)
     AP.Try(function()
         if not player or not xp or xp <= 0 then return end
 
-        local guid        = player:GetGUIDLow()
+        local guid        = AP.RT.GetGUID(player)
         local rates       = AP.GetPlayerRates(guid)
-        local accountId   = player:GetAccountId()
+        local accountId   = AP.RT.GetAccountId(player)
         local session     = GetSession(guid)
         local inInstance  = IsInInstance(player)
 
@@ -307,14 +304,14 @@ RegisterPlayerEvent(12, function(event, player, xp, creature, bonus)
         local entry = 0
         local creatureLevel = 0
         if creature then
-            entry = creature:GetEntry()
+            entry = AP.RT.GetCreatureEntry(creature)
             rank  = GetCreatureRank(creature)
-            creatureLevel = creature:GetLevel()
+            creatureLevel = AP.RT.GetCreatureLevel(creature)
         end
 
-        -- Gray mob check — only relevant for creature kills
+        -- Gray mob check â€” only relevant for creature kills
         if creature then
-            local playerLevel = player:GetLevel()
+            local playerLevel = AP.RT.GetLevel(player)
             if IsGrayMob(playerLevel, creatureLevel) then
                 AP.Debug("Gray mob skip: entry=" .. entry)
                 return
@@ -329,13 +326,13 @@ RegisterPlayerEvent(12, function(event, player, xp, creature, bonus)
         local isBoss = creature and ((rank == 3) or IsInstanceBoss(entry, inInstance)) or false
         local isRaid = false
         if isBoss and creature then
-            local map = player:GetMap()
+            local map = AP.RT.GetMap(player)
             if map then
-                local rok, rval = pcall(function() return map:IsRaid() end)
-                if rok then isRaid = rval end
+                local rval = AP.RT.IsMapRaid(map)
+                if rval ~= nil then isRaid = rval end
             end
         end
-        local playerLevel = player:GetLevel()
+        local playerLevel = AP.RT.GetLevel(player)
         local contentCap = creature
             and AP.GetThreatContentCap(playerLevel, creatureLevel, rank, isBoss, isRaid)
             or 0.0
@@ -351,7 +348,7 @@ RegisterPlayerEvent(12, function(event, player, xp, creature, bonus)
                 session.debtMult = 1.0
                 if player then
                     pcall(function()
-                        player:SendBroadcastMessage(
+                        AP.RT.SendMessage(player,
                             "|cff00ff00[Worldsoul]|r Worldsoul Debt cleared. Full gains restored.")
                     end)
                 end
@@ -396,13 +393,11 @@ RegisterPlayerEvent(12, function(event, player, xp, creature, bonus)
             aetherGrant = math.floor(aetherBase * totalMult)
             if isBoss then
                 aetherGrant = math.floor(aetherGrant * rates.boss * surgeMult)
-                -- Visage: send Dark Souls flash for boss kill
-                if AP.Visage and AP.Visage.SendFlash then
+                -- Visage: send Dark Souls flash for boss kill (dedup'd against
+                -- the kill-creature-path handler for gray-XP-suppressed bosses)
+                if AP.Visage and AP.Visage.TryBossFlash then
                     local isBossRaid = (raidMult > 1.0)
-                    local flash = AP.GetBossFlash and AP.GetBossFlash(entry, isBossRaid, false)
-                    if flash then
-                        AP.Visage.SendFlash(player, flash[1], flash[2])
-                    end
+                    AP.Visage.TryBossFlash(player, entry, isBossRaid, false)
                 end
                 if AP.Tutorial and AP.Tutorial.Trigger then
                     AP.Tutorial.Trigger(player, "first_boss")
@@ -410,21 +405,21 @@ RegisterPlayerEvent(12, function(event, player, xp, creature, bonus)
                 -- Dungeon Mastery: record first conquest of this dungeon (non-raid instances only)
                 if inInstance and raidMult == 1.0 then
                     AP.Try(function()
-                        local mapId     = player:GetMapId()
-                        local accountId = player:GetAccountId()
+                        local mapId     = AP.RT.GetMapId(player)
+                        local accountId = AP.RT.GetAccountId(player)
                         if mapId and mapId > 0 then
-                            local qc = CharDBQuery(string.format(
+                            local qc = AP.DB.Query(string.format(
                                 "SELECT 1 FROM `ap_aether_milestones` "..
                                 "WHERE `account_id` = %d AND `milestone_type` = 'dungeon_conquest' AND `milestone_id` = %d LIMIT 1",
                                 accountId, mapId))
                             if not qc then
-                                CharDBExecute(string.format(
+                                AP.DB.ExecuteCritical(string.format(
                                     "INSERT IGNORE INTO `ap_aether_milestones` "..
                                     "(`account_id`, `milestone_type`, `milestone_id`) "..
                                     "VALUES (%d, 'dungeon_conquest', %d)",
-                                    accountId, mapId))
-                                CharDBExecute("COMMIT")
-                                player:SendBroadcastMessage(
+                                    accountId, mapId), "ap_events.dungeon_conquest")
+                                AP.DB.Execute("COMMIT")
+                                AP.RT.SendMessage(player,
                                     "|cffffd700[Worldsoul]|r Dungeon conquered. "..
                                     "The Worldsoul remembers your mastery here.")
                                 if AP.Tutorial and AP.Tutorial.Trigger then
@@ -446,7 +441,7 @@ RegisterPlayerEvent(12, function(event, player, xp, creature, bonus)
             -- Read old total for hundred-Essence tutorial check
             local oldAether = 0
             AP.Try(function()
-                local aq = CharDBQuery(string.format(
+                local aq = AP.DB.Query(string.format(
                     "SELECT `aether` FROM `ap_mastery` WHERE `guid` = %d", guid))
                 if aq then oldAether = tonumber(tostring(aq:GetUInt32(0))) or 0 end
             end, "tutorial aether read")
@@ -458,8 +453,8 @@ RegisterPlayerEvent(12, function(event, player, xp, creature, bonus)
             if AP.Tutorial and AP.Tutorial.Trigger then
                 -- 1500ms delay so the kill XP settles before the whisper arrives
                 local playerGuid = guid
-                CreateLuaEvent(function()
-                    local livePlayer = GetPlayerByGUID(playerGuid)
+                AP.RT.CreateTimer(function()
+                    local livePlayer = AP.RT.GetPlayerByGUID(playerGuid)
                     if not livePlayer then return end
                     AP.Tutorial.Trigger(livePlayer, "first_essence")
                     local newAether = oldAether + aetherGrant
@@ -488,9 +483,9 @@ RegisterPlayerEvent(12, function(event, player, xp, creature, bonus)
         -- investment rather than something that happens in one dungeon run.
         local unattunedCount = 0
         for _, slot in ipairs(attunSlots) do
-            local item = player:GetEquippedItemBySlot(slot)
+            local item = AP.RT.GetEquippedItem(player, slot)
             if item then
-                local rec = AP.LoadItemAttune(guid, item:GetEntry())
+                local rec = AP.LoadItemAttune(guid, AP.RT.GetItemEntry(item))
                 if not rec or not rec.attuned then
                     unattunedCount = unattunedCount + 1
                 end
@@ -504,11 +499,11 @@ RegisterPlayerEvent(12, function(event, player, xp, creature, bonus)
 
         for _, slot in ipairs(attunSlots) do
             AP.Try(function()
-                local item = player:GetEquippedItemBySlot(slot)
+                local item = AP.RT.GetEquippedItem(player, slot)
                 if not item then return end
 
-                local itemEntry = item:GetEntry()
-                local quality   = item:GetQuality() or 1
+                local itemEntry = AP.RT.GetItemEntry(item)
+                local quality   = AP.RT.GetItemQuality(item) or 1
                 local rarityM   = AP.RarityMultiplier(quality)
                 local rec       = AP.LoadItemAttune(guid, itemEntry)
                 if not rec or rec.attuned then return end
@@ -530,7 +525,7 @@ RegisterPlayerEvent(12, function(event, player, xp, creature, bonus)
                 if nowAttuned and not rec.attuned then
                     AP.CaptureSnapshot(player, item)
                     AP.Try(function()
-                        player:SendBroadcastMessage(
+                        AP.RT.SendMessage(player,
                             "|cff9966ff[Worldsoul]|r Item fully attuned! Progress absorbed.")
                     end, "broadcast attune")
                     AP.Log("Item attuned: entry=" .. itemEntry .. " guid=" .. guid)
@@ -557,22 +552,22 @@ RegisterPlayerEvent(12, function(event, player, xp, creature, bonus)
                         local fEntry    = itemEntry
                         local fGuid     = guid
                         local fAccId    = accountId
-                        local fLevel    = player:GetLevel()
+                        local fLevel    = AP.RT.GetLevel(player)
                         local fMastery  = 0
                         local fItemName = "Item"
                         pcall(function()
-                            local nq = WorldDBQuery(string.format(
+                            local nq = AP.DB.WorldQuery(string.format(
                                 "SELECT `name` FROM `item_template` WHERE `entry`=%d", fEntry))
                             if nq then fItemName = nq:GetString(0) end
-                            local mq = CharDBQuery(string.format(
+                            local mq = AP.DB.Query(string.format(
                                 "SELECT `mastery` FROM `ap_mastery` WHERE `guid`=%d", fGuid))
                             if mq then fMastery = tonumber(tostring(mq:GetUInt32(0))) or 0 end
                         end)
-                        CreateLuaEvent(function()
-                            local lp = GetPlayerByGUID(fGuid)
+                        AP.RT.CreateTimer(function()
+                            local lp = AP.RT.GetPlayerByGUID(fGuid)
                             if not lp then return end
                             pcall(function()
-                                local sq = CharDBQuery(string.format(
+                                local sq = AP.DB.Query(string.format(
                                     "SELECT `str`,`agi`,`sta`,`int`,`spi` "..
                                     "FROM `ap_item_snapshot` WHERE `guid`=%d AND `item_entry`=%d",
                                     fAccId, fEntry
@@ -592,7 +587,7 @@ RegisterPlayerEvent(12, function(event, player, xp, creature, bonus)
                                 if int_ > 0 then parts[#parts+1] = string.format("+%.0f INT", int_ * effective) end
                                 if spi  > 0 then parts[#parts+1] = string.format("+%.0f SPI", spi  * effective) end
                                 if #parts > 0 then
-                                    lp:SendBroadcastMessage(string.format(
+                                    AP.RT.SendMessage(lp,string.format(
                                         "|cff9966ff[Worldsoul]|r %s echo claimed. Absorbing: %s",
                                         fItemName, table.concat(parts, " | ")
                                     ))
@@ -602,7 +597,7 @@ RegisterPlayerEvent(12, function(event, player, xp, creature, bonus)
                     end
                 end
 
-                AP.Debug(string.format("Slot %d entry=%d xp=%d +%d → %d",
+                AP.Debug(string.format("Slot %d entry=%d xp=%d +%d â†’ %d",
                     slot, itemEntry, xp, addedProgress, newProgress))
             end, "attune slot " .. slot)
         end
@@ -616,7 +611,7 @@ RegisterPlayerEvent(12, function(event, player, xp, creature, bonus)
             local rackXPPerItem = math.floor(rackBaseXP / #rackEntries)
             for _, rackEntry in ipairs(rackEntries) do
                 local rackCap = AP.GetScaledCap(rackEntry)
-                local rq = CharDBQuery(string.format(
+                local rq = AP.DB.Query(string.format(
                     "SELECT `progress`,`attuned` FROM `ap_item_attune` "..
                     "WHERE `guid`=%d AND `item_entry`=%d",
                     guid, rackEntry
@@ -629,7 +624,7 @@ RegisterPlayerEvent(12, function(event, player, xp, creature, bonus)
                 end
                 if not isAttuned then
                     local rackQuality = 1
-                    local rwq = WorldDBQuery(string.format(
+                    local rwq = AP.DB.WorldQuery(string.format(
                         "SELECT `Quality` FROM `item_template` WHERE `entry`=%d LIMIT 1",
                         rackEntry))
                     if rwq then rackQuality = tonumber(rwq:GetUInt8(0)) or 1 end
@@ -637,7 +632,7 @@ RegisterPlayerEvent(12, function(event, player, xp, creature, bonus)
                     local addedRackXP = math.max(1, math.floor(
                         rackXPPerItem * AP.Config.XpToAttune * rackRarityM * totalMult))
                     local newProgress = math.min(rackCap, curProgress + addedRackXP)
-                    CharDBExecute(string.format(
+                    AP.DB.Execute(string.format(
                         "INSERT INTO `ap_item_attune` "..
                         "(`guid`,`item_entry`,`progress`,`attuned`) "..
                         "VALUES (%d,%d,%d,0) "..
@@ -646,7 +641,7 @@ RegisterPlayerEvent(12, function(event, player, xp, creature, bonus)
                     ))
                 end
             end
-            CharDBExecute("COMMIT")
+            AP.DB.Execute("COMMIT")
             for _, rackEntry in ipairs(rackEntries) do
                 AP.Rack.CheckAttuned(player, rackEntry)
             end
@@ -656,9 +651,67 @@ RegisterPlayerEvent(12, function(event, player, xp, creature, bonus)
         -- Without this, InnoDB REPEATABLE READ keeps a stale snapshot
         -- on the sync connection, making attuned=1 writes invisible to
         -- subsequent LoadItemAttune reads in the same session.
-        CharDBQuery("COMMIT;")
+        AP.DB.Execute("COMMIT;")
 
     end, "AP xp event")
+end)
+
+
+-- ============================================================
+-- BOSS FLASH FALLBACK: PLAYER_EVENT_ON_KILL_CREATURE (event 7)
+-- Fires from Unit::Kill() independent of XP calculation. Exists
+-- specifically to catch bosses the event-12 XP handler above can
+-- never reach: legacy raid bosses (typically level 60-63) that
+-- are "gray" to a level-80 killer under AzerothCore's gray-mob
+-- formula, and therefore yield 0 XP and never dispatch
+-- PLAYER_EVENT_ON_GIVE_XP at all. AP.Visage.TryBossFlash's
+-- encounter-keyed dedup prevents any double-fire for bosses that
+-- happen to qualify on both paths.
+--
+-- Known limitation (documented, not fixed here): this event does
+-- NOT fire for the Lich King, because boss_the_lich_king.cpp
+-- ends the encounter via a scripted self-kill
+-- (Unit::Kill(&_owner, &_owner)) rather than a player-attributed
+-- kill, so killer->ToPlayer() is never true for that death. This
+-- is not a gap in practice: the Lich King already clears the
+-- XP-gray threshold (level 83) and is fully handled by the
+-- event-12 path above.
+--
+-- KNOWN LIMITATION (documented, accepted for this repair): this
+-- event fires ONLY for the single killing-blow attributor
+-- (Unit::Kill's `killer` argument), not once per raid member.
+-- The XP-gated event-12 path fires per-player because
+-- KillRewarder loops over the whole group; this fallback does
+-- not replicate that fan-out. Practical effect: for a
+-- gray-suppressed legacy boss, only the player who lands the
+-- killing blow sees the flash, not the whole raid. Fixing that
+-- would require explicit group iteration and was judged out of
+-- scope for this narrowly scoped repair.
+-- ============================================================
+AP.RT.RegisterEvent("player", 7, function(event, killer, killed)
+    AP.Try(function()
+        if not killer or not killed then return end
+
+        local entry = AP.RT.GetCreatureEntry(killed)
+        if not entry or entry <= 0 then return end
+
+        local inInstance = IsInInstance(killer)
+        if not inInstance then return end
+
+        local rank = GetCreatureRank(killed)
+        local isBoss = (rank == 3) or AP.IsInstanceBoss(entry, inInstance)
+        if not isBoss then return end
+
+        local isBossRaid = false
+        local map = AP.RT.GetMap(killer)
+        if map then
+            isBossRaid = AP.RT.IsMapRaid(map) or false
+        end
+
+        if AP.Visage and AP.Visage.TryBossFlash then
+            AP.Visage.TryBossFlash(killer, entry, isBossRaid, false)
+        end
+    end, "BossFlashOnKillCreature")
 end)
 
 
@@ -667,13 +720,12 @@ end)
 -- PLAYER_EVENT_ON_COMPLETE_QUEST = 54
 -- Fires when the player fully completes and turns in a quest.
 -- ============================================================
-RegisterPlayerEvent(54, function(event, player, quest)
+AP.RT.RegisterEvent("player", 54, function(event, player, quest)
     AP.Try(function()
         if not player or not quest then return end
 
-        local guid    = player:GetGUIDLow()
-        local questId = 0
-        AP.Try(function() questId = quest:GetId() end, "quest:GetId")
+        local guid    = AP.RT.GetGUID(player)
+        local questId = AP.RT.GetQuestId(quest)
         if questId == 0 then return end
 
         local key = guid .. ":" .. questId
@@ -686,13 +738,13 @@ RegisterPlayerEvent(54, function(event, player, quest)
         -- Capture player name now while player object is still valid.
         -- After 500ms the original userdata may be invalidated.
         local playerName = nil
-        AP.Try(function() playerName = player:GetName() end, "quest player:GetName")
+        AP.Try(function() playerName = AP.RT.GetName(player) end, "quest player:GetName")
 
         -- Delay 500ms: character_queststatus_rewarded row may not exist yet.
         -- We capture guid/questId/playerName by value, NOT the player object.
-        CreateLuaEvent(function()
+        AP.RT.CreateTimer(function()
             AP.Try(function()
-                local already = CharDBQuery(string.format(
+                local already = AP.DB.Query(string.format(
                     "SELECT 1 FROM `ap_quest_rewarded` WHERE `guid` = %d AND `quest_id` = %d LIMIT 1;",
                     guid, questId))
                 if already then
@@ -701,7 +753,7 @@ RegisterPlayerEvent(54, function(event, player, quest)
                     return
                 end
 
-                local coreCheck = CharDBQuery(string.format(
+                local coreCheck = AP.DB.Query(string.format(
                     "SELECT 1 FROM `character_queststatus_rewarded` WHERE `guid` = %d AND `quest` = %d LIMIT 1;",
                     guid, questId))
                 if not coreCheck then
@@ -710,9 +762,9 @@ RegisterPlayerEvent(54, function(event, player, quest)
                     return
                 end
 
-                CharDBQuery(string.format(
+                AP.DB.ExecuteCritical(string.format(
                     "INSERT IGNORE INTO `ap_quest_rewarded` (`guid`, `quest_id`) VALUES (%d, %d);",
-                    guid, questId))
+                    guid, questId), "ap_events.quest_rewarded")
 
                 local rates         = AP.GetPlayerRates(guid)
                 local questAccId    = AP.GetAccountId(guid)
@@ -725,11 +777,11 @@ RegisterPlayerEvent(54, function(event, player, quest)
                 -- Synastria design: completing a quest auto-attunes every
                 -- reward option, not just the one the player selected.
                 AP.Try(function()
-                    local freshPlayer = GetPlayerByName and GetPlayerByName(playerName)
+                    local freshPlayer = AP.RT.GetPlayerByName(playerName)
                     if not freshPlayer then return end
 
                     -- Query all reward items from quest_template
-                    local q = WorldDBQuery(string.format([[
+                    local q = AP.DB.WorldQuery(string.format([[
                         SELECT
                             `RewardChoiceItemID1`, `RewardChoiceItemID2`, `RewardChoiceItemID3`,
                             `RewardChoiceItemID4`, `RewardChoiceItemID5`, `RewardChoiceItemID6`,
@@ -760,10 +812,10 @@ RegisterPlayerEvent(54, function(event, player, quest)
                         if itemEntry and itemEntry > 0 then
                             -- Only auto-attune equippable gear (weapon=2, armor=4 with a valid slot).
                             -- Consumables (class=0), quest items (class=12), reagents, etc. must
-                            -- NEVER reach attuned=1 — they can be dissolved at the Forge for
+                            -- NEVER reach attuned=1 â€” they can be dissolved at the Forge for
                             -- Residue/gold, and vendor-bought consumables that also appear as
                             -- quest rewards create an infinite buy->attune->dissolve loop.
-                            local iq = WorldDBQuery(string.format([[
+                            local iq = AP.DB.WorldQuery(string.format([[
                                     SELECT `stat_type1`, `stat_value1`,
                                            `stat_type2`, `stat_value2`,
                                            `stat_type3`, `stat_value3`,
@@ -789,21 +841,11 @@ RegisterPlayerEvent(54, function(event, player, quest)
                                             itemEntry, iClass, invType))
                                     else
 
-                                    local stats = { str=0, agi=0, sta=0, ["int"]=0, spi=0 }
-                                    -- Parse all 10 stat pairs
-                                    for i = 0, 9 do
-                                        local statType  = tonumber(iq:GetUInt32(i * 2))     or 0
-                                        local statValue = tonumber(iq:GetUInt32(i * 2 + 1)) or 0
-                                        if statType == 4 then stats.str        = stats.str        + statValue
-                                        elseif statType == 3 then stats.agi    = stats.agi        + statValue
-                                        elseif statType == 7 then stats.sta    = stats.sta        + statValue
-                                        elseif statType == 5 then stats["int"] = stats["int"]     + statValue
-                                        elseif statType == 6 then stats.spi    = stats.spi        + statValue
-                                        end
-                                    end
-                                    local quality  = tonumber(iq:GetUInt8(20)) or 1
                                     local reqLevel = tonumber(iq:GetUInt8(21)) or 1
                                     if reqLevel <= 0 then reqLevel = 1 end
+                                    -- E2j5a: armor/weapon_dps restoration - shared helper (ap_core.lua),
+                                    -- same historical formula proven in cpp_patch/mod_attunement_plus.patch.
+                                    local stats, quality = AP.ComputeSnapshotStatsFromItemTemplate(itemEntry)
 
                                     -- Save snapshot account-wide
                                     local accountId = AP.GetAccountId(guid)
@@ -811,11 +853,11 @@ RegisterPlayerEvent(54, function(event, player, quest)
 
                                     -- Mark as attuned for this character
                                     local scaledCap = AP.GetScaledCap(itemEntry)
-                                    CharDBQuery(string.format([[
+                                    AP.DB.ExecuteCritical(string.format([[
                                         INSERT INTO `ap_item_attune` (`guid`, `item_entry`, `progress`, `attuned`)
                                         VALUES (%d, %d, %d, 1)
                                         ON DUPLICATE KEY UPDATE `progress` = %d, `attuned` = 1;
-                                    ]], guid, itemEntry, scaledCap, scaledCap))
+                                    ]], guid, itemEntry, scaledCap, scaledCap), "ap_events.quest_item_attune")
 
                                     attuneCount = attuneCount + 1
                                     AP.Debug(string.format("Quest auto-attuned: entry=%d", itemEntry))
@@ -824,21 +866,21 @@ RegisterPlayerEvent(54, function(event, player, quest)
                         end
                     end
 
-                    CharDBQuery("COMMIT;")
+                    AP.DB.Execute("COMMIT;")
 
                     if attuneCount > 0 then
                         AP.Log(string.format("Quest auto-attune: questId=%d attuned=%d items", questId, attuneCount))
                     end
                 end, "quest auto-attune rewards")
 
-                CharDBQuery("COMMIT;")
+                AP.DB.Execute("COMMIT;")
 
-                -- Look up player fresh by name — safe after any delay.
+                -- Look up player fresh by name â€” safe after any delay.
                 AP.Try(function()
                     if playerName then
-                        local freshPlayer = GetPlayerByName and GetPlayerByName(playerName)
+                        local freshPlayer = AP.RT.GetPlayerByName(playerName)
                         if freshPlayer then
-                            freshPlayer:SendBroadcastMessage(string.format(
+                            AP.RT.SendMessage(freshPlayer,string.format(
                                 "|cff9966ff[Worldsoul]|r Quest complete! +%d Essence.", amount))
                         end
                     end
@@ -858,10 +900,10 @@ end)
 -- PLAYER_EVENT_ON_EQUIP = 29
 -- Reserved for future use; slot XP is granted on kills.
 -- ============================================================
-RegisterPlayerEvent(29, function(event, player, item, bag, slot)
+AP.RT.RegisterEvent("player", 29, function(event, player, item, bag, slot)
     AP.Try(function()
         if not player or not item then return end
-        local itemEntry = item:GetEntry()
+        local itemEntry = AP.RT.GetItemEntry(item)
         AP.Debug("Equip: slot=" .. tostring(slot) .. " entry=" .. tostring(itemEntry))
 
         -- Auto-remove from Rack on equip.
@@ -872,7 +914,7 @@ RegisterPlayerEvent(29, function(event, player, item, bag, slot)
         -- equipped items attune naturally through the combat loop; they don't
         -- need and must not also receive the Rack's 20% bonus rate.
         if AP.Rack then
-            local guid = player:GetGUIDLow()
+            local guid = AP.RT.GetGUID(player)
             if not AP.Rack.Cache[guid] then AP.Rack.Load(guid) end
             local cache = AP.Rack.Cache[guid]
             if cache then
@@ -886,16 +928,16 @@ RegisterPlayerEvent(29, function(event, player, item, bag, slot)
                     end
                 end
                 if rackSlot then
-                    CharDBExecute(string.format(
+                    AP.DB.Execute(string.format(
                         "UPDATE `ap_rack` SET `item_entry`=0,`item_name`='',`item_quality`=1 "..
                         "WHERE `guid`=%d AND `slot_index`=%d",
                         guid, rackSlot
                     ))
-                    CharDBExecute("COMMIT")
+                    AP.DB.Execute("COMMIT")
                     cache[rackSlot] = nil
-                    player:SendBroadcastMessage(string.format(
+                    AP.RT.SendMessage(player,string.format(
                         "|cff9966ff[Worldsoul]|r %s unsheathed from the Rack. "..
-                        "Equipped items attune through combat — no Rack slot needed.",
+                        "Equipped items attune through combat â€” no Rack slot needed.",
                         itemName
                     ))
                 end
@@ -916,7 +958,7 @@ end)
 -- and ap_tests.lua because it also fires from the console.
 -- ============================================================
 AP._tipRateLimit = AP._tipRateLimit or {}
-local TIP_RATE_LIMIT_SEC = 0.2  -- 200ms — fast enough for smooth hover, slow enough to prevent spam
+local TIP_RATE_LIMIT_SEC = 0.2  -- 200ms â€” fast enough for smooth hover, slow enough to prevent spam
 
 local function HandleChatLine(player, msg)
     if not player or not msg then return end
@@ -925,6 +967,17 @@ local function HandleChatLine(player, msg)
     -- UI openers
     if lower == "ap" or lower == "#ap" or lower == "!ap" or lower == ".ap" then
         AP.Try(function() AP.OpenUI(player) end, "AP open UI")
+        return false
+    end
+
+    if lower == "#ap doctor" then
+        if AP.Doctor and AP.Doctor.Report then
+            AP.Doctor.Report(player)
+        else
+            AP.RT.SendMessage(
+                player,
+                "|cffff4444[Echoes]|r System Doctor is unavailable.")
+        end
         return false
     end
 
@@ -938,12 +991,12 @@ local function HandleChatLine(player, msg)
     local testauraForce = lower:match("^#ap testaura force%s+(%d+)$")
     if testauraId or testauraForce then
         if not AP.IsGM(player) then
-            player:SendBroadcastMessage("|cffff4444[Worldsoul]|r GM access required.")
+            AP.RT.SendMessage(player,"|cffff4444[Worldsoul]|r GM access required.")
             return false
         end
         local spellId = tonumber(testauraForce or testauraId)
         local forced = (testauraForce ~= nil)
-        local guid = player:GetGUIDLow()
+        local guid = AP.RT.GetGUID(player)
 
         -- Safety: only allow scanner-approved IDs unless forced
         if not forced and AP.AuraLab then
@@ -952,7 +1005,7 @@ local function HandleChatLine(player, msg)
                 if c.spellId == spellId then approved = true; break end
             end
             if not approved then
-                player:SendBroadcastMessage(string.format(
+                AP.RT.SendMessage(player,string.format(
                     "|cffff4444[Echoes]|r Spell %d is NOT scanner-approved. "..
                     "Use '#ap testaura force %d' to override (unsafe).", spellId, spellId))
                 return false
@@ -960,9 +1013,9 @@ local function HandleChatLine(player, msg)
         end
 
         print(string.format("[Echoes] testaura spellId=%d player=%s forced=%s",
-            spellId, player:GetName(), tostring(forced)))
+            spellId, AP.RT.GetName(player), tostring(forced)))
         if forced then
-            player:SendBroadcastMessage(
+            AP.RT.SendMessage(player,
                 "|cffff4444[Echoes]|r WARNING: forced unapproved spell. May cause harm.")
         end
 
@@ -971,20 +1024,20 @@ local function HandleChatLine(player, msg)
             local vc = AP.Visage.Cache[guid]
             vc.primary_enabled = 0
             vc.secondary_enabled = 0
-            CharDBQuery(string.format(
+            AP.DB.Execute(string.format(
                 "UPDATE `ap_visage` SET `primary_enabled`=0, `secondary_enabled`=0 WHERE `guid`=%d", guid))
-            CharDBQuery("COMMIT;")
+            AP.DB.Execute("COMMIT;")
             for sid, _ in pairs(AP.Visage.AllSpellIds) do
-                pcall(function() player:RemoveAura(sid) end)
+                AP.RT.RemoveAura(player, sid)
             end
         end
 
-        local ok, err = pcall(function() player:AddAura(spellId, player) end)
+        local ok, err = AP.RT.AddAura(player, spellId)
         if ok then
-            player:SendBroadcastMessage(string.format(
+            AP.RT.SendMessage(player,string.format(
                 "|cff9966ff[Echoes]|r Testing aura %d. Move around, wait 10 sec.", spellId))
         else
-            player:SendBroadcastMessage(string.format(
+            AP.RT.SendMessage(player,string.format(
                 "|cffff4444[Echoes]|r AddAura(%d) failed: %s", spellId, tostring(err)))
         end
         return false
@@ -993,16 +1046,16 @@ local function HandleChatLine(player, msg)
     local clearauraId = lower:match("^#ap clearaura%s+(%d+)$")
     if clearauraId then
         if not AP.IsGM(player) then
-            player:SendBroadcastMessage("|cffff4444[Worldsoul]|r GM access required.")
+            AP.RT.SendMessage(player,"|cffff4444[Worldsoul]|r GM access required.")
             return false
         end
         local spellId = tonumber(clearauraId)
-        local ok, err = pcall(function() player:RemoveAura(spellId) end)
+        local ok, err = AP.RT.RemoveAura(player, spellId)
         if ok then
-            player:SendBroadcastMessage(string.format(
+            AP.RT.SendMessage(player,string.format(
                 "|cff9966ff[Echoes]|r Removed aura %d.", spellId))
         else
-            player:SendBroadcastMessage(string.format(
+            AP.RT.SendMessage(player,string.format(
                 "|cffff4444[Echoes]|r RemoveAura(%d) failed: %s", spellId, tostring(err)))
         end
         return false
@@ -1010,21 +1063,21 @@ local function HandleChatLine(player, msg)
 
     if lower == "#ap aurastatus" then
         if not AP.IsGM(player) then
-            player:SendBroadcastMessage("|cffff4444[Worldsoul]|r GM access required.")
+            AP.RT.SendMessage(player,"|cffff4444[Worldsoul]|r GM access required.")
             return false
         end
-        local guid = player:GetGUIDLow()
+        local guid = AP.RT.GetGUID(player)
         if AP.Visage and AP.Visage.Cache[guid] then
             local c = AP.Visage.Cache[guid]
             local attunedCount = AP.Visage.GetAttunedCount(guid)
-            local totalInvested = AP.Visage.GetTotalCrucibleInvested(player:GetAccountId())
+            local totalInvested = AP.Visage.GetTotalCrucibleInvested(AP.RT.GetAccountId(player))
             local pTier = AP.Visage.GetPrimaryTier(attunedCount)
             local sTier = AP.Visage.GetSecondaryTier(totalInvested)
             local pSpells = AP.Visage.ThemeSpells[c.primary_theme]
             local sSpells = AP.Visage.ThemeSpells[c.secondary_theme]
             local pId = (pSpells and pTier > 0) and pSpells[pTier] or 0
             local sId = (sSpells and sTier > 0) and sSpells[sTier] or 0
-            player:SendBroadcastMessage(string.format(
+            AP.RT.SendMessage(player,string.format(
                 "|cff9966ff[Echoes]|r Attuned: %d | Primary: %s T%d enabled=%d spellId=%d | "..
                 "Secondary: %s T%d enabled=%d spellId=%d | Crucible: %d",
                 attunedCount,
@@ -1032,7 +1085,7 @@ local function HandleChatLine(player, msg)
                 c.secondary_theme, sTier, c.secondary_enabled, sId,
                 totalInvested))
         else
-            player:SendBroadcastMessage("|cffff4444[Echoes]|r No Visage cache for this character.")
+            AP.RT.SendMessage(player,"|cffff4444[Echoes]|r No Visage cache for this character.")
         end
         return false
     end
@@ -1045,7 +1098,7 @@ local function HandleChatLine(player, msg)
             AP.RunTests(player, filter)
         else
             AP.Try(function()
-                player:SendBroadcastMessage("|cffff4444[Worldsoul]|r AP.RunTests not loaded.")
+                AP.RT.SendMessage(player,"|cffff4444[Worldsoul]|r AP.RunTests not loaded.")
             end, "aptest missing")
         end
         return false
@@ -1054,12 +1107,12 @@ local function HandleChatLine(player, msg)
     -- Find quest command
     if lower == "#apfind" or lower == "apfind" then
         AP.Try(function()
-            local guid   = player:GetGUIDLow()
-            local zoneId = player:GetZoneId()
-            local mapId  = player:GetMapId()
+            local guid   = AP.RT.GetGUID(player)
+            local zoneId = AP.RT.GetZoneId(player)
+            local mapId  = AP.RT.GetMapId(player)
 
             if not zoneId or zoneId == 0 then
-                player:SendBroadcastMessage("|cff9966ff[Worldsoul]|r Could not detect your current zone.")
+                AP.RT.SendMessage(player,"|cff9966ff[Worldsoul]|r Could not detect your current zone.")
                 return false
             end
 
@@ -1076,7 +1129,7 @@ local function HandleChatLine(player, msg)
 
             -- Build quest list from creature AND gameobject starters
             -- UNION ensures we catch both NPC-started and object-started quests
-            local q = WorldDBQuery(string.format([[
+            local q = AP.DB.WorldQuery(string.format([[
                 SELECT DISTINCT
                     qt.`Id`,
                     qt.`LogTitle`,
@@ -1088,7 +1141,7 @@ local function HandleChatLine(player, msg)
                     ct.`name` AS starterName
                 FROM `quest_template` qt
                 JOIN `creature_queststarter` cqs ON cqs.`quest` = qt.`Id`
-                JOIN `creature` c ON c.`id1` = cqs.`id`
+                JOIN `creature` c ON c.`id` = cqs.`id`
                 JOIN `creature_template` ct ON ct.`entry` = cqs.`id`
                 WHERE (c.`zoneId` = %d OR (c.`zoneId` = 0 AND c.`map` = %d))
                 AND (
@@ -1127,12 +1180,12 @@ local function HandleChatLine(player, msg)
             ]], zoneId, mapId, zoneId, mapId))
 
             if not q then
-                player:SendBroadcastMessage("|cff9966ff[Worldsoul]|r No attunable quests found in this zone.")
+                AP.RT.SendMessage(player,"|cff9966ff[Worldsoul]|r No attunable quests found in this zone.")
                 return false
             end
 
             local found = 0
-            player:SendBroadcastMessage("|cff9966ff[Worldsoul]|r Quests with unattuned rewards in this zone:")
+            AP.RT.SendMessage(player,"|cff9966ff[Worldsoul]|r Quests with unattuned rewards in this zone:")
 
             repeat
                 local questId     = tonumber(q:GetUInt32(0)) or 0
@@ -1153,7 +1206,7 @@ local function HandleChatLine(player, msg)
                     local rec = AP.LoadItemAttune(guid, itemEntry)
                     if not rec or not rec.attuned then
                         -- Check if item has anything worth attuning
-                        local iq = WorldDBQuery(string.format([[
+                        local iq = AP.DB.WorldQuery(string.format([[
                             SELECT `name`, `Quality`,
                                    `stat_value1`+`stat_value2`+`stat_value3`+
                                    `stat_value4`+`stat_value5`+`stat_value6`+
@@ -1184,25 +1237,25 @@ local function HandleChatLine(player, msg)
 
                 if #unattunedItems > 0 then
                     -- Check if quest is already completed
-                    local done = CharDBQuery(string.format(
+                    local done = AP.DB.Query(string.format(
                         "SELECT 1 FROM `character_queststatus_rewarded` WHERE `guid` = %d AND `quest` = %d LIMIT 1;",
                         guid, questId))
 
                     if not done then
                         -- Check if this quest leads to more quests (chain indicator)
-                        local chainQ = WorldDBQuery(string.format(
+                        local chainQ = AP.DB.WorldQuery(string.format(
                             "SELECT `RewardNextQuest` FROM `quest_template` WHERE `Id` = %d LIMIT 1;",
                             questId))
                         local hasChain = chainQ and (tonumber(chainQ:GetUInt32(0)) or 0) > 0
                         local chainSuffix = hasChain and " |cff888888[chain]|r" or ""
 
-                        player:SendBroadcastMessage(string.format(
+                        AP.RT.SendMessage(player,string.format(
                             "|cffffff00%s|r%s |cff888888(from %s)|r",
                             title, chainSuffix, starterName))
 
                         for _, item in ipairs(unattunedItems) do
                             local color = qualityColors[item.quality] or qualityColors[1]
-                            player:SendBroadcastMessage(string.format(
+                            AP.RT.SendMessage(player,string.format(
                                 "  %s%s|r", color, item.name))
                         end
 
@@ -1212,9 +1265,9 @@ local function HandleChatLine(player, msg)
             until not q:NextRow()
 
             if found == 0 then
-                player:SendBroadcastMessage("|cff9966ff[Worldsoul]|r All attunable quests in this zone are complete!")
+                AP.RT.SendMessage(player,"|cff9966ff[Worldsoul]|r All attunable quests in this zone are complete!")
             else
-                player:SendBroadcastMessage(string.format(
+                AP.RT.SendMessage(player,string.format(
                     "|cff9966ff[Worldsoul]|r Found %d quest(s). Use #apfind in other zones to track more.", found))
             end
         end, "AP apfind")
@@ -1224,7 +1277,7 @@ local function HandleChatLine(player, msg)
     -- Tooltip request: #ap tip <entry> or ap tip <entry>
     local tipEntry = lower:match("^#?ap%s+tip%s+(%d+)$")
     if tipEntry then
-        local guid = player:GetGUIDLow()
+        local guid = AP.RT.GetGUID(player)
         -- Key by guid+entry so hovering different items rapidly isn't blocked
         local key  = guid .. "_" .. tipEntry
         local now  = os.clock()  -- sub-second precision
@@ -1243,14 +1296,14 @@ local function HandleChatLine(player, msg)
     return nil
 end
 
--- Event 18: PLAYER_EVENT_ON_CHAT — SAY, YELL (includes GM chat)
-RegisterPlayerEvent(18, function(event, player, msg, type, lang, channel)
+-- Event 18: PLAYER_EVENT_ON_CHAT â€” SAY, YELL (includes GM chat)
+AP.RT.RegisterEvent("player", 18, function(event, player, msg, type, lang, channel)
     return HandleChatLine(player, msg)
 end)
 
--- Event 19: PLAYER_EVENT_ON_WHISPER — whisper received
+-- Event 19: PLAYER_EVENT_ON_WHISPER â€” whisper received
 -- This is what the client AddOn uses for tooltip requests.
-RegisterPlayerEvent(19, function(event, player, msg, lang, receiver)
+AP.RT.RegisterEvent("player", 19, function(event, player, msg, lang, receiver)
     return HandleChatLine(player, msg)
 end)
 
@@ -1260,26 +1313,21 @@ end)
 -- ============================================================
 local function CheckReturningPlayer(player)
     local ok, err = pcall(function()
-        local guid = player:GetGUIDLow()
+        local guid = AP.RT.GetGUID(player)
 
         -- Check last logout time from characters table
-        -- Column 'online' stores 0/1; 'logout_time' or 'last_login' stores the timestamp
-        -- Try 'logout_time' first (AzerothCore default), fall back to 'last_login'
+        -- Column 'online' stores 0/1; 'logout_time' stores the timestamp.
+        -- (E2j5g: removed a 'last_login' fallback query — that column does
+        -- not exist on this server's characters table; referencing it would
+        -- trigger AzerothCore's fatal unexpected-column abort, not a
+        -- catchable Lua error.)
         local lastLogout = 0
-        local q = CharDBQuery(string.format(
+        local q = AP.DB.Query(string.format(
             "SELECT `logout_time` FROM `characters` WHERE `guid` = %d", guid))
         if q then
             lastLogout = tonumber(tostring(q:GetUInt32(0))) or 0
         end
-        if lastLogout == 0 then
-            -- Try alternate column name
-            local q2 = CharDBQuery(string.format(
-                "SELECT `last_login` FROM `characters` WHERE `guid` = %d", guid))
-            if q2 then
-                lastLogout = tonumber(tostring(q2:GetUInt32(0))) or 0
-            end
-        end
-        if lastLogout == 0 then return end  -- column not found or first login
+        if lastLogout == 0 then return end  -- first login (never logged out yet)
 
         local now = os.time()
         local daysSince = (now - lastLogout) / 86400
@@ -1288,11 +1336,11 @@ local function CheckReturningPlayer(player)
         -- Get stats for the message
         local aether = 0
         local attuned = 0
-        local qa = CharDBQuery(string.format(
+        local qa = AP.DB.Query(string.format(
             "SELECT `aether` FROM `ap_mastery` WHERE `guid` = %d", guid))
         if qa then aether = tonumber(tostring(qa:GetUInt32(0))) or 0 end
 
-        local qat = CharDBQuery(string.format(
+        local qat = AP.DB.Query(string.format(
             "SELECT COUNT(*) FROM `ap_item_attune` WHERE `guid` = %d AND `attuned` = 1", guid))
         if qat then attuned = tonumber(tostring(qat:GetUInt32(0))) or 0 end
 
@@ -1302,10 +1350,10 @@ local function CheckReturningPlayer(player)
             aether, attuned)
 
         local playerGuid = guid
-        CreateLuaEvent(function()
-            local livePlayer = GetPlayerByGUID(playerGuid)
+        AP.RT.CreateTimer(function()
+            local livePlayer = AP.RT.GetPlayerByGUID(playerGuid)
             if not livePlayer then return end
-            livePlayer:SendBroadcastMessage(msg)
+            AP.RT.SendMessage(livePlayer,msg)
         end, 5000, 1)
     end)
     if not ok then
@@ -1316,9 +1364,13 @@ end
 -- ============================================================
 -- LOGIN / LOGOUT
 -- ============================================================
-RegisterPlayerEvent(3, function(event, player)
+AP.RT.RegisterEvent("player", 3, function(event, player)
     AP.Try(function()
-        local guid    = player:GetGUIDLow()
+        -- Capability probe: fires once per server session via AP.Probe._ran guard.
+        -- Must run before any AP.Cap.Check() call lower in the login path.
+        if AP.Probe and AP.Probe.RunLogin then AP.Probe.RunLogin(player) end
+
+        local guid    = AP.RT.GetGUID(player)
         local session = GetSession(guid)
         LoadThreatFromDB(guid, session)
         AP.Log("Player logged in: guid=" .. guid .. " threat=" .. session.threat)
@@ -1327,7 +1379,7 @@ RegisterPlayerEvent(3, function(event, player)
         -- stored progress already meets or exceeds the current scaled cap.
         -- Handles items stored under old cap values or config changes.
         AP.Try(function()
-            local q = CharDBQuery(string.format(
+            local q = AP.DB.Query(string.format(
                 "SELECT `item_entry`, `progress` FROM `ap_item_attune` WHERE `guid` = %d AND `attuned` = 0;",
                 guid))
             if not q then return end
@@ -1344,13 +1396,13 @@ RegisterPlayerEvent(3, function(event, player)
             until not q:NextRow()
 
             for _, entry in ipairs(toAttune) do
-                CharDBQuery(string.format(
+                AP.DB.ExecuteCritical(string.format(
                     "UPDATE `ap_item_attune` SET `attuned` = 1 WHERE `guid` = %d AND `item_entry` = %d;",
-                    guid, entry))
+                    guid, entry), "ap_events.login_attune_migration")
                 AP.Log(string.format("Migration: attuned entry=%d", entry))
             end
             if #toAttune > 0 then
-                CharDBQuery("COMMIT;")
+                AP.DB.Execute("COMMIT;")
             end
         end, "AP login migration")
 
@@ -1361,7 +1413,7 @@ RegisterPlayerEvent(3, function(event, player)
             local accountId   = AP.GetAccountId(guid)
 
             -- Find all attuned items for this character with no snapshot
-            local q = CharDBQuery(string.format([[
+            local q = AP.DB.Query(string.format([[
                 SELECT a.`item_entry`
                 FROM `ap_item_attune` a
                 LEFT JOIN `ap_item_snapshot` s
@@ -1377,45 +1429,19 @@ RegisterPlayerEvent(3, function(event, player)
                 local itemEntry = tonumber(q:GetUInt32(0)) or 0
                 if itemEntry > 0 then
                     -- Snapshot ALL attuned items regardless of armor class
-                    local iq = WorldDBQuery(string.format([[
-                        SELECT `stat_type1`, `stat_value1`,
-                               `stat_type2`, `stat_value2`,
-                               `stat_type3`, `stat_value3`,
-                               `stat_type4`, `stat_value4`,
-                               `stat_type5`, `stat_value5`,
-                               `stat_type6`, `stat_value6`,
-                               `stat_type7`, `stat_value7`,
-                               `stat_type8`, `stat_value8`,
-                               `stat_type9`, `stat_value9`,
-                               `stat_type10`, `stat_value10`,
-                               `Quality`
-                        FROM `item_template`
-                        WHERE `entry` = %d LIMIT 1;
-                    ]], itemEntry))
-
-                    if iq then
-                        local stats = { str=0, agi=0, sta=0, ["int"]=0, spi=0 }
-                        for i = 0, 9 do
-                            local statType  = tonumber(iq:GetUInt32(i * 2))     or 0
-                            local statValue = tonumber(iq:GetUInt32(i * 2 + 1)) or 0
-                            if     statType == 4 then stats.str        = stats.str      + statValue
-                            elseif statType == 3 then stats.agi        = stats.agi      + statValue
-                            elseif statType == 7 then stats.sta        = stats.sta      + statValue
-                            elseif statType == 5 then stats["int"]     = stats["int"]   + statValue
-                            elseif statType == 6 then stats.spi        = stats.spi      + statValue
-                            end
-                        end
-                        local quality = tonumber(iq:GetUInt8(20)) or 1
+                    -- E2j5a: armor/weapon_dps restoration - shared helper (ap_core.lua).
+                    local stats, quality = AP.ComputeSnapshotStatsFromItemTemplate(itemEntry)
+                    if stats then
                         AP.SaveSnapshotAccountWide(guid, itemEntry, quality, stats)
                         snapped = snapped + 1
-                        AP.Debug(string.format("Snapshot migration: entry=%d str=%.0f agi=%.0f sta=%.0f",
-                            itemEntry, stats.str, stats.agi, stats.sta))
+                        AP.Debug(string.format("Snapshot migration: entry=%d str=%.0f agi=%.0f sta=%.0f armor=%.0f wdps=%.1f",
+                            itemEntry, stats.str, stats.agi, stats.sta, stats.armor, stats.weapon_dps))
                     end
                 end
             until not q:NextRow()
 
             if snapped > 0 then
-                CharDBQuery("COMMIT;")
+                AP.DB.Execute("COMMIT;")
                 AP.Log(string.format("Snapshot migration: captured %d snapshots for guid=%d", snapped, guid))
             end
         end, "AP snapshot migration")
@@ -1423,13 +1449,13 @@ RegisterPlayerEvent(3, function(event, player)
     end, "AP login")
 end)
 
-RegisterPlayerEvent(4, function(event, player)
+AP.RT.RegisterEvent("player", 4, function(event, player)
     AP.Try(function()
-        local guid = player:GetGUIDLow()
+        local guid = AP.RT.GetGUID(player)
         local session = AP._session[guid]
         if session then
             pcall(function()
-                CharDBQuery(string.format(
+                AP.DB.ExecuteAsync(string.format(
                     "INSERT INTO `ap_session_state` (`guid`,`clean_exit`,`threat_level`,`threat_momentum`,"..
                     "`threat_debt_kills`,`threat_debt_mult`) "..
                     "VALUES (%d, 1, %d, %.4f, %d, %.4f) "..
@@ -1439,15 +1465,15 @@ RegisterPlayerEvent(4, function(event, player)
                     session.debtKills or 0, session.debtMult or 1.0,
                     session.threat or 0, session.momentum or 0,
                     session.debtKills or 0, session.debtMult or 1.0))
-                CharDBQuery("COMMIT;")
+                AP.DB.ExecuteAsync("COMMIT;")
             end)
         else
             pcall(function()
-                CharDBQuery(string.format(
+                AP.DB.ExecuteAsync(string.format(
                     "INSERT INTO `ap_session_state` (`guid`,`clean_exit`) VALUES (%d, 1) "..
                     "ON DUPLICATE KEY UPDATE `clean_exit` = 1",
                     guid))
-                CharDBQuery("COMMIT;")
+                AP.DB.ExecuteAsync("COMMIT;")
             end)
         end
         AP._session[guid] = nil
@@ -1467,35 +1493,35 @@ end)
 -- on that ability, approximating genuine CDR at max investment.
 -- Only fires for spells with > 1500ms cooldown (skips GCD-only).
 -- ============================================================
-RegisterPlayerEvent(5, function(event, player, spell, skipCheck)
+AP.RT.RegisterEvent("player", 5, function(event, player, spell, skipCheck)
     AP.Try(function()
-        local accountId = player:GetAccountId()
+        local accountId = AP.RT.GetAccountId(player)
         local invested  = AP.Sinks and AP.Sinks.GetInvested(accountId, "cooldown_reduction") or 0
         if invested <= 0 then return end
 
         local cdrFrac = AP.Sinks.GetEffect("cooldown_reduction", invested)
         if cdrFrac <= 0 then return end
 
-        local spellId = spell:GetEntry()
+        local spellId = AP.RT.GetSpellEntry(spell)
         if not spellId or spellId <= 0 then return end
 
         -- Capture plain GUID now; player userdata is invalid after this event returns
-        local playerGuid = player:GetGUIDLow()
+        local playerGuid = AP.RT.GetGUID(player)
 
         -- Check cooldown 100ms after cast (let the engine set it first)
-        CreateLuaEvent(function()
-            local livPlayer = GetPlayerByGUID(playerGuid)
+        AP.RT.CreateTimer(function()
+            local livPlayer = AP.RT.GetPlayerByGUID(playerGuid)
             if not livPlayer then return end
-            if not livPlayer:IsInWorld() then return end
-            if not livPlayer:HasSpellCooldown(spellId) then return end
+            if not AP.RT.IsInWorld(livPlayer) then return end
+            if not AP.RT.HasSpellCooldown(livPlayer, spellId) then return end
 
-            local remaining = livPlayer:GetSpellCooldownDelay(spellId)
+            local remaining = AP.RT.GetCooldownDelay(livPlayer, spellId)
             if remaining <= 1500 then return end  -- GCD only, skip
 
             -- Roll for reset proc
             local roll = math.random()
             if roll < cdrFrac then
-                livPlayer:ResetSpellCooldown(spellId, true)
+                AP.RT.ResetCooldown(livPlayer, spellId)
             end
         end, 100, 1)
     end, "AP cooldown_reduction")
@@ -1521,10 +1547,10 @@ local AP_DEATH_DUR_RATE           = 0.10  -- matches DurabilityLoss.OnDeath defa
 
 local s_recentlyDied = {}  -- guid -> true
 
-RegisterPlayerEvent(8, function(event, killer, killed)
+AP.RT.RegisterEvent("player", 8, function(event, killer, killed)
     AP.Try(function()
-        local guid      = killed:GetGUIDLow()
-        local accountId = killed:GetAccountId()
+        local guid      = AP.RT.GetGUID(killed)
+        local accountId = AP.RT.GetAccountId(killed)
         local session   = AP._session[guid]
 
         -- Threat death penalties
@@ -1542,7 +1568,7 @@ RegisterPlayerEvent(8, function(event, killer, killed)
             -- 1. Momentum reset
             session.momentum = 0.0
             session.momentumKills = 0
-            killed:SendBroadcastMessage(
+            AP.RT.SendMessage(killed,
                 "|cff9966ff[Worldsoul]|r Death breaks your Threat Momentum.")
 
             -- 2. Attunement progress penalty on equipped unattuned items
@@ -1550,9 +1576,9 @@ RegisterPlayerEvent(8, function(event, killer, killed)
                 local attunSlots = {0,1,2,4,5,6,7,8,9,10,11,12,13,14,15,16,17}
                 for _, slot in ipairs(attunSlots) do
                     pcall(function()
-                        local item = killed:GetEquippedItemBySlot(slot)
+                        local item = AP.RT.GetEquippedItem(killed, slot)
                         if not item then return end
-                        local itemEntry = item:GetEntry()
+                        local itemEntry = AP.RT.GetItemEntry(item)
                         local rec = AP.LoadItemAttune(guid, itemEntry)
                         if not rec or rec.attuned or rec.progress <= 0 then return end
                         local loss = math.floor(rec.progress * attuneLoss)
@@ -1564,10 +1590,10 @@ RegisterPlayerEvent(8, function(event, killer, killed)
                     end)
                 end
                 if totalLost > 0 then
-                    killed:SendBroadcastMessage(string.format(
+                    AP.RT.SendMessage(killed,string.format(
                         "|cff9966ff[Worldsoul]|r Unfinished attunement weakened: %d progress lost.", totalLost))
                 else
-                    killed:SendBroadcastMessage(
+                    AP.RT.SendMessage(killed,
                         "|cff9966ff[Worldsoul]|r No unfinished attunement to lose.")
                 end
             end
@@ -1575,21 +1601,21 @@ RegisterPlayerEvent(8, function(event, killer, killed)
             -- 3. Essence tax
             if essencePct > 0 then
                 pcall(function()
-                    local q = CharDBQuery(string.format(
+                    local q = AP.DB.Query(string.format(
                         "SELECT `aether` FROM `ap_mastery` WHERE `guid` = %d", guid))
                     if q then
                         local cur = tonumber(tostring(q:GetUInt32(0))) or 0
                         essenceLost = math.min(math.floor(cur * essencePct), essenceCap)
                         if essenceLost > 0 then
-                            CharDBQuery(string.format(
+                            AP.DB.Execute(string.format(
                                 "UPDATE `ap_mastery` SET `aether` = GREATEST(0, `aether` - %d) WHERE `guid` = %d",
                                 essenceLost, guid))
-                            CharDBQuery("COMMIT;")
+                            AP.DB.Execute("COMMIT;")
                         end
                     end
                 end)
                 if essenceLost > 0 then
-                    killed:SendBroadcastMessage(string.format(
+                    AP.RT.SendMessage(killed,string.format(
                         "|cff9966ff[Worldsoul]|r Death's toll: %d Essence lost.", essenceLost))
                 end
             end
@@ -1598,7 +1624,7 @@ RegisterPlayerEvent(8, function(event, killer, killed)
             if debtKills > 0 then
                 session.debtKills = debtKills
                 session.debtMult  = debtMult
-                killed:SendBroadcastMessage(string.format(
+                AP.RT.SendMessage(killed,string.format(
                     "|cff9966ff[Worldsoul]|r Worldsoul Debt: next %d kills at %.0f%% gains.",
                     debtKills, debtMult * 100))
             end
@@ -1619,13 +1645,13 @@ RegisterPlayerEvent(8, function(event, killer, killed)
     end, "AP death handler")
 end)
 
-RegisterPlayerEvent(36, function(event, player)
+AP.RT.RegisterEvent("player", 36, function(event, player)
     AP.Try(function()
-        local guid = player:GetGUIDLow()
+        local guid = AP.RT.GetGUID(player)
         if not s_recentlyDied[guid] then return end
         s_recentlyDied[guid] = nil
 
-        local accountId = player:GetAccountId()
+        local accountId = AP.RT.GetAccountId(player)
         local invested  = AP.Sinks and AP.Sinks.GetInvested(accountId, "res_resilience") or 0
         if invested <= 0 then return end
 
@@ -1640,25 +1666,26 @@ RegisterPlayerEvent(36, function(event, player)
 
         local restored = 0
         for slot = 0, 18 do
-            local item = player:GetEquippedItemBySlot(slot)
+            local item = AP.RT.GetEquippedItem(player, slot)
             if item then
-                local maxDur = item:GetUInt32Value(AP_ITEM_FIELD_MAXDURABILITY)
-                local curDur = item:GetUInt32Value(AP_ITEM_FIELD_DURABILITY)
+                local maxDur = AP.RT.GetItemUInt32Value(item, AP_ITEM_FIELD_MAXDURABILITY)
+                local curDur = AP.RT.GetItemUInt32Value(item, AP_ITEM_FIELD_DURABILITY)
                 if maxDur and maxDur > 0 then
                     local deathLoss = math.floor(maxDur * AP_DEATH_DUR_RATE)
                     local gain      = math.floor(deathLoss * resiFrac)
                     if gain > 0 then
                         local newDur = math.min(curDur + gain, maxDur)
-                        item:SetUInt32Value(AP_ITEM_FIELD_DURABILITY, newDur)
-                        item:SaveToDB()
-                        restored = restored + gain
+                        if AP.RT.SetItemUInt32Value(item, AP_ITEM_FIELD_DURABILITY, newDur) then
+                            AP.RT.SaveItemToDB(item)
+                            restored = restored + gain
+                        end
                     end
                 end
             end
         end
 
         if restored > 0 then
-            player:SendBroadcastMessage(string.format(
+            AP.RT.SendMessage(player,string.format(
                 "|cff9966ff[Worldsoul]|r Res Resilience: %.1f%% of durability loss restored.",
                 resiFrac * 100.0))
         end
@@ -1669,12 +1696,12 @@ end)
 -- ACHIEVEMENT AETHER
 -- Event 45 = PLAYER_EVENT_ON_ACHIEVEMENT_COMPLETE
 -- (event, player, achievement)
--- achievement:GetId() confirmed; GetPoints() NOT available in this build.
--- Points looked up from achievement_dbc (sparse — custom entries only).
+-- AP.RT.GetAchievementId(achievement) confirmed; GetPoints() NOT available in this build.
+-- Points looked up from achievement_dbc (sparse â€” custom entries only).
 -- Falls back to flat 50 Aether; Loremaster IDs handled as special cases.
 -- ============================================================
 local function GetSurgeMult(player)
-    local accountId = player:GetAccountId()
+    local accountId = AP.RT.GetAccountId(player)
     if not AP.SinkCache or not AP.SinkCache[accountId] then
         if AP.Sinks and AP.Sinks.LoadForAccount then
             AP.Sinks.LoadForAccount(accountId)
@@ -1684,9 +1711,9 @@ local function GetSurgeMult(player)
     return 1.0 + (AP.Sinks and AP.Sinks.GetEffect("aether_surge", surgeInvested) or 0)
 end
 
-RegisterPlayerEvent(45, function(event, player, achievement)
+AP.RT.RegisterEvent("player", 45, function(event, player, achievement)
     AP.Try(function()
-        local achId = achievement:GetId()
+        local achId = AP.RT.GetAchievementId(achievement)
         if not achId or achId <= 0 then return end
 
         local amount
@@ -1703,7 +1730,7 @@ RegisterPlayerEvent(45, function(event, player, achievement)
         else
             -- Look up points from achievement_dbc (only custom entries present)
             local points = 0
-            local q = WorldDBQuery(string.format(
+            local q = AP.DB.WorldQuery(string.format(
                 "SELECT `Points` FROM `achievement_dbc` WHERE `ID` = %d LIMIT 1;",
                 achId))
             if q then points = tonumber(q:GetUInt32(0)) or 0 end
@@ -1732,34 +1759,32 @@ EotW_MasterySpeedActive = EotW_MasterySpeedActive or {}
 
 local function CheckDungeonMasterySpeed(player)
     local ok, err = pcall(function()
-        local guid      = player:GetGUIDLow()
-        local accountId = player:GetAccountId()
+        local guid      = AP.RT.GetGUID(player)
+        local accountId = AP.RT.GetAccountId(player)
 
         local inDungeon = false
         local mapId     = 0
-        pcall(function()
-            local map = player:GetMap()
-            if not map then return end
-            local isInst, isRaid = false, false
-            pcall(function() isInst = map:IsInstance() end)
-            pcall(function() isRaid = map:IsRaid() end)
+        local map = AP.RT.GetMap(player)
+        if map then
+            local isInst = AP.RT.IsMapInstance(map) or false
+            local isRaid = AP.RT.IsMapRaid(map) or false
             inDungeon = isInst and not isRaid
-            mapId = player:GetMapId()
-        end)
+            mapId = AP.RT.GetMapId(player)
+        end
 
         if not inDungeon then
             if EotW_MasterySpeedActive[guid] then
                 EotW_MasterySpeedActive[guid] = nil
                 local sinkInv    = AP.Sinks and AP.Sinks.GetInvested(accountId, "movement_speed") or 0
                 local sinkBonus  = AP.Sinks and AP.Sinks.GetEffect("movement_speed", sinkInv) or 0
-                pcall(function() player:SetSpeed(1, 1.0 + sinkBonus, true) end)
+                AP.RT.SetSpeed(player, 1, 1.0 + sinkBonus, true)
             end
             return
         end
 
         if EotW_MasterySpeedActive[guid] then return end  -- already applied
 
-        local qc = CharDBQuery(string.format(
+        local qc = AP.DB.Query(string.format(
             "SELECT 1 FROM `ap_aether_milestones` "..
             "WHERE `account_id` = %d AND `milestone_type` = 'dungeon_conquest' AND `milestone_id` = %d LIMIT 1",
             accountId, mapId))
@@ -1767,11 +1792,10 @@ local function CheckDungeonMasterySpeed(player)
 
         local sinkInv   = AP.Sinks and AP.Sinks.GetInvested(accountId, "movement_speed") or 0
         local sinkBonus = AP.Sinks and AP.Sinks.GetEffect("movement_speed", sinkInv) or 0
-        local isMounted, isFlying = false, false
-        pcall(function() isMounted = player:IsMounted() end)
-        pcall(function() isFlying  = player:IsInFlight() end)
+        local isMounted = AP.RT.IsMounted(player)
+        local isFlying  = AP.RT.IsInFlight(player)
         if not isMounted and not isFlying then
-            pcall(function() player:SetSpeed(1, 1.0 + sinkBonus + 0.08, true) end)
+            AP.RT.SetSpeed(player, 1, 1.0 + sinkBonus + 0.08, true)
             EotW_MasterySpeedActive[guid] = true
         end
     end)
@@ -1787,7 +1811,7 @@ end
 -- ContinentID from areatable_dbc determines Aether tier.
 -- ============================================================
 local function GetZoneAether(zoneId)
-    local q = WorldDBQuery(string.format(
+    local q = AP.DB.WorldQuery(string.format(
         "SELECT `ContinentID` FROM `areatable_dbc` WHERE `ID` = %d LIMIT 1;",
         zoneId))
     if not q then return 25 end
@@ -1799,7 +1823,7 @@ local function GetZoneAether(zoneId)
     end
 end
 
-RegisterPlayerEvent(27, function(event, player, newZone, newArea)
+AP.RT.RegisterEvent("player", 27, function(event, player, newZone, newArea)
     AP.Try(function()
         if not newZone or newZone <= 0 then return end
         local granted = GrantMilestoneAether(player, "area", newZone,
@@ -1829,7 +1853,7 @@ local AP_REP_STANDING_AETHER = {
     [7] = { aether = 300, label = "Exalted"  },
 }
 
-RegisterPlayerEvent(15, function(event, player, factionId, standing, incremental)
+AP.RT.RegisterEvent("player", 15, function(event, player, factionId, standing, incremental)
     AP.Try(function()
         if not factionId or factionId <= 0 then return end
         local rep = AP_REP_STANDING_AETHER[standing]
@@ -1851,7 +1875,7 @@ end)
 -- value = previous skill value, new_value = value after update
 -- milestone_id = skillId * 10 + tier (1-6 for 75/150/225/300/375/450)
 -- ============================================================
-RegisterPlayerEvent(62, function(event, player, skillId, value, max, step, newValue)
+AP.RT.RegisterEvent("player", 62, function(event, player, skillId, value, max, step, newValue)
     AP.Try(function()
         if not skillId or skillId <= 0 then return end
 
@@ -1891,62 +1915,62 @@ local ECHO_FRAGMENT_ENTRY = 900010
 EotW_EchoFragmentQuality   = EotW_EchoFragmentQuality   or {}
 EotW_EchoFragmentItemEntry = EotW_EchoFragmentItemEntry or {}
 
-RegisterPlayerEvent(32, function(event, player, item, count)
+AP.RT.RegisterEvent("player", 32, function(event, player, item, count)
     local ok, err = pcall(function()
-        local guid      = player:GetGUIDLow()
-        local accountId = player:GetAccountId()
+        local guid      = AP.RT.GetGUID(player)
+        local accountId = AP.RT.GetAccountId(player)
 
         -- item parameter may be an Item object or a raw entry integer depending on Eluna build
         local itemEntry = 0
         if type(item) == "number" then
             itemEntry = item
         else
-            pcall(function() itemEntry = item:GetEntry() end)
+            itemEntry = AP.RT.GetItemEntry(item)
         end
         if not itemEntry or itemEntry <= 0 then return end
         if itemEntry == ECHO_FRAGMENT_ENTRY then return end
 
         -- Is this item fully attuned for this character?
-        local qa = CharDBQuery(string.format(
+        local qa = AP.DB.Query(string.format(
             "SELECT 1 FROM `ap_item_attune` WHERE `guid` = %d AND `item_entry` = %d AND `attuned` = 1 LIMIT 1",
             guid, itemEntry))
         if not qa then return end
 
         -- Get drop count for Legacy Surge detection
         local dropCount = 0
-        local qd = CharDBQuery(string.format(
+        local qd = AP.DB.Query(string.format(
             "SELECT `drop_count` FROM `ap_resonant_drops` WHERE `account_id` = %d AND `item_entry` = %d",
             accountId, itemEntry))
         if qd then dropCount = tonumber(tostring(qd:GetUInt32(0))) or 0 end
         dropCount = dropCount + 1
 
-        CharDBExecute(string.format(
+        AP.DB.Execute(string.format(
             "INSERT INTO `ap_resonant_drops` (`account_id`, `item_entry`, `drop_count`) "..
             "VALUES (%d, %d, 1) ON DUPLICATE KEY UPDATE `drop_count` = `drop_count` + 1",
             accountId, itemEntry))
-        CharDBExecute("COMMIT")
+        AP.DB.Execute("COMMIT")
 
         -- Remove the original item before giving the fragment
-        -- For object form: item:Remove(). For integer form: RemoveItem by entry.
+        -- For object form: AP.RT.RemoveItemObject(item). For integer form: RemoveItem by entry.
         local removed = false
         if type(item) ~= "number" then
-            pcall(function() item:Remove(); removed = true end)
+            removed = AP.RT.RemoveItemObject(item)
         end
         if not removed then
-            pcall(function() player:RemoveItem(itemEntry, 1); removed = true end)
+            removed = AP.RT.RemoveItem(player, itemEntry, 1)
         end
         if not removed then
             print("[EotW] WARN: Could not remove resonant drop entry=" .. itemEntry)
-            CharDBExecute(string.format(
+            AP.DB.Execute(string.format(
                 "UPDATE `ap_resonant_drops` SET `drop_count` = `drop_count` - 1 "..
                 "WHERE `account_id` = %d AND `item_entry` = %d", accountId, itemEntry))
-            CharDBExecute("COMMIT")
+            AP.DB.Execute("COMMIT")
             return
         end
 
         -- Look up quality from DB (reliable regardless of whether item is object or integer)
         local quality = 1
-        local iq = WorldDBQuery(string.format(
+        local iq = AP.DB.WorldQuery(string.format(
             "SELECT `Quality` FROM `item_template` WHERE `entry` = %d LIMIT 1", itemEntry))
         if iq then quality = tonumber(iq:GetUInt8(0)) or 1 end
 
@@ -1955,10 +1979,9 @@ RegisterPlayerEvent(32, function(event, player, item, count)
 
         -- Give the Echo Fragment and immediately persist it to DB so a
         -- client crash before the autosave tick cannot lose the item.
-        local fragGiven = false
-        pcall(function() player:AddItem(ECHO_FRAGMENT_ENTRY, 1); fragGiven = true end)
+        local fragGiven = AP.RT.AddItem(player, ECHO_FRAGMENT_ENTRY, 1)
         if fragGiven then
-            pcall(function() player:SaveToDB(false, false) end)
+            AP.RT.SavePlayerToDB(player, false, false)
         end
 
         if fragGiven then
@@ -1970,18 +1993,18 @@ RegisterPlayerEvent(32, function(event, player, item, count)
             else                     goldPrev = "20s"
             end
             if dropCount >= 4 then
-                player:SendBroadcastMessage(string.format(
+                AP.RT.SendMessage(player,string.format(
                     "|cffffd700[Worldsoul]|r |cffff8800Legacy Surge!|r Echo already claimed. "..
                     "A |cff9966ffWorldsoul Echo Fragment|r is in your bag. "..
                     "Right-click for |cffffff003x Essence + %s|r.", goldPrev))
             else
-                player:SendBroadcastMessage(string.format(
+                AP.RT.SendMessage(player,string.format(
                     "|cffffd700[Worldsoul]|r Echo already claimed. "..
                     "A |cff9966ffWorldsoul Echo Fragment|r is in your bag. "..
                     "Right-click for |cffffff00Essence + %s|r, or disenchant/vendor.", goldPrev))
             end
         else
-            print("[EotW] WARN: Could not give Echo Fragment to " .. player:GetName() .. " (bag full?)")
+            print("[EotW] WARN: Could not give Echo Fragment to " .. AP.RT.GetName(player) .. " (bag full?)")
         end
     end)
     if not ok then

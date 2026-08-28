@@ -25,18 +25,18 @@ AP = AP or {}
 -- Wraps GossipMenuAddItem / GossipSendMenu safely.
 -- ============================================================
 local function GossipReset(player)
-    AP.Try(function() player:GossipClearMenu() end, "GossipClearMenu")
+    AP.Try(function() AP.UI.ClearMenu(player) end, "GossipClearMenu")
 end
 
 local function GossipAdd(player, icon, text, sender, intid)
     AP.Try(function()
-        player:GossipMenuAddItem(icon or 0, text, sender or 0, intid or 0)
+        AP.UI.AddItem(player,icon or 0, text, sender or 0, intid or 0)
     end, "GossipMenuAddItem")
 end
 
 local function GossipSend(player, text, sender)
     AP.Try(function()
-        player:GossipSendMenu(1, player, sender or 99)
+        AP.UI.SendMenu(player,1, player, sender or 99)
     end, "GossipSendMenu")
 end
 
@@ -76,12 +76,12 @@ end
 
 -- ---- PROGRESSION STATUS PAGE ----
 local function ShowProgressionPage(player)
-    local guid      = player:GetGUIDLow()
+    local guid      = AP.RT.GetGUID(player)
     local accountId = AP.GetAccountId(guid)
     local rec       = AP.LoadMastery(guid)
     local aether    = rec and rec.aether  or 0
     local mastery   = rec and rec.mastery or 0
-    local level     = player:GetLevel()
+    local level     = AP.RT.GetLevel(player)
 
     local basePct      = AP.MasteryAbsorbPct(mastery)
     local levelScale   = AP.LevelAbsorbScalar(level)
@@ -95,7 +95,7 @@ local function ShowProgressionPage(player)
 
     local totalAttuned = 0
     AP.Try(function()
-        local q = CharDBQuery(string.format(
+        local q = AP.DB.Query(string.format(
             "SELECT COUNT(*) FROM `ap_item_attune` WHERE `guid` = %d AND `attuned` = 1", guid))
         if q then totalAttuned = tonumber(tostring(q:GetUInt32(0))) or 0 end
     end, "status attuned count")
@@ -142,12 +142,17 @@ local function ShowProgressionPage(player)
 
     GossipReset(player)
 
+    -- Layer 1: explain -> Layer 2: current state -> Layer 3: link to advanced details.
+    -- Replaces the old dense "Effective Absorption: %.1f%% (Base %.1f%% x Level Scalar %.1f%%)"
+    -- line, which led with an unframed three-number formula (E2j12 UX audit finding).
     GossipAdd(player, 0, "Echoes of the Worldsoul -- Progression", SENDER_MASTERY, 0)
+    GossipAdd(player, 0,
+        "Mastery determines how much of your attuned gear's stats stay with you permanently, "..
+        "even after you unequip the item or Dissolve it at the Legacy Forge.",
+        SENDER_MASTERY, 0)
     GossipAdd(player, 0, string.format(
-        "Level: %d  |  Mastery Rank: %d", level, mastery), SENDER_MASTERY, 0)
-    GossipAdd(player, 0, string.format(
-        "Effective Absorption: %.1f%%  (Base %.1f%% x Level Scalar %.1f%%)",
-        effectivePct * 100, basePct * 100, levelScale * 100), SENDER_MASTERY, 0)
+        "Level: %d  |  Mastery Rank: %d  |  Absorption: %.1f%%",
+        level, mastery, effectivePct * 100), SENDER_MASTERY, 0)
     GossipAdd(player, 0, string.format(
         "Essence: %d  |  Worldsoul Residue: %d", aether, residue), SENDER_MASTERY, 0)
     GossipAdd(player, 0, string.format(
@@ -155,14 +160,7 @@ local function ShowProgressionPage(player)
     GossipAdd(player, 0, string.format(
         "Visage Primary: %s %s  |  Secondary: %s %s",
         priThemeName, priLabel, secThemeName, secLabel), SENDER_MASTERY, 0)
-
-    local sessionThreat = AP._session and AP._session[guid]
-    local tLevel = sessionThreat and sessionThreat.threat or 0
-    local tMomentum = sessionThreat and sessionThreat.momentum or 0
-    local tEffective = (AP.GetThreatMult(tLevel, tMomentum) - 1.0) * 100
-    GossipAdd(player, 0, string.format(
-        "World Threat: %s (%d)  |  Momentum: %.0f%%  |  Bonus: +%.1f%%",
-        AP.GetThreatName(tLevel), tLevel, tMomentum * 100, tEffective), SENDER_MASTERY, 0)
+    GossipAdd(player, 0, "View exact formula / advanced details", SENDER_MASTERY, 20)
 
     -- Next goals
     GossipAdd(player, 0, "-- Next Goals --", SENDER_MASTERY, 0)
@@ -231,9 +229,50 @@ local function ShowProgressionPage(player)
     GossipSend(player, "Progression Status", SENDER_MASTERY)
 end
 
+-- ---- PROGRESSION ADVANCED DETAILS PAGE ----
+-- Layer 3 of the three-layer model: the exact formula breakdown and
+-- session-scoped World Threat readout that used to lead the main
+-- Progression page (E2j12 UX audit -- moved here, not deleted).
+local function ShowProgressionDetailPage(player)
+    local guid    = AP.RT.GetGUID(player)
+    local rec     = AP.LoadMastery(guid)
+    local mastery = rec and rec.mastery or 0
+    local level   = AP.RT.GetLevel(player)
+
+    local basePct      = AP.MasteryAbsorbPct(mastery)
+    local levelScale   = AP.LevelAbsorbScalar(level)
+    local effectivePct = basePct * levelScale
+
+    GossipReset(player)
+
+    GossipAdd(player, 0, "Progression -- Advanced Details", SENDER_MASTERY, 0)
+    GossipAdd(player, 0, string.format(
+        "Effective Absorption: %.1f%%  (Base %.1f%% x Level Scalar %.1f%%)",
+        effectivePct * 100, basePct * 100, levelScale * 100), SENDER_MASTERY, 0)
+    GossipAdd(player, 0,
+        "Base Absorption starts at 5%% and grows toward ~85%% as you invest Essence into Mastery Ranks. "..
+        "Level Scalar phases this in gradually from level 9 to level 80.",
+        SENDER_MASTERY, 0)
+    GossipAdd(player, 0,
+        "Talents multiply this per-stat (see the Talents page for their exact formula). "..
+        "Armor and Weapon-DPS absorption use this same percentage but are not affected by Talents.",
+        SENDER_MASTERY, 0)
+
+    local sessionThreat = AP._session and AP._session[guid]
+    local tLevel = sessionThreat and sessionThreat.threat or 0
+    local tMomentum = sessionThreat and sessionThreat.momentum or 0
+    local tEffective = (AP.GetThreatMult(tLevel, tMomentum) - 1.0) * 100
+    GossipAdd(player, 0, string.format(
+        "World Threat (session-scoped, not permanent): %s (%d)  |  Momentum: %.0f%%  |  Bonus: +%.1f%%",
+        AP.GetThreatName(tLevel), tLevel, tMomentum * 100, tEffective), SENDER_MASTERY, 0)
+
+    GossipAdd(player, 1, "<< Back to Progression Status", SENDER_MASTERY, 0)
+    GossipSend(player, "Progression Details", SENDER_MASTERY)
+end
+
 -- ---- EQUIPPED ITEMS PAGE ----
 local function ShowEquippedPage(player)
-    local guid  = player:GetGUIDLow()
+    local guid  = AP.RT.GetGUID(player)
     local slots = {0,4,5,6,7,8,9,14,15,16}
 
     GossipReset(player)
@@ -241,10 +280,10 @@ local function ShowEquippedPage(player)
     local shown = 0
     for _, slot in ipairs(slots) do
         AP.Try(function()
-            local item = player:GetEquippedItemBySlot(slot)
+            local item = AP.RT.GetEquippedItem(player,slot)
             if not item then return end
 
-            local entry  = item:GetEntry()
+            local entry  = AP.RT.GetItemEntry(item)
             local rec    = AP.LoadItemAttune(guid, entry)
             local prog   = rec and rec.progress or 0
             local att    = rec and rec.attuned or false
@@ -255,7 +294,7 @@ local function ShowEquippedPage(player)
             -- Item name via WorldDB
             local name = "Item " .. entry
             AP.Try(function()
-                local q = WorldDBQuery(string.format(
+                local q = AP.DB.WorldQuery(string.format(
                     "SELECT `name` FROM `item_template` WHERE `entry` = %d LIMIT 1;", entry))
                 if q then name = q:GetString(0) end
             end, "item name lookup")
@@ -279,7 +318,7 @@ end
 
 -- ---- SLOT SPECIALIZATION PAGE ----
 local function ShowSlotPage(player)
-    local guid = player:GetGUIDLow()
+    local guid = AP.RT.GetGUID(player)
 
     -- Ordered slot list so display is consistent every time
     local slotOrder = {0,1,2,4,5,6,7,8,9,10,11,12,13,14,15,16,17}
@@ -357,30 +396,29 @@ end
 local SENDER_TALENT_STAT = 7  -- sub-page for stat detail
 
 local function ShowTalentPage(player)
-    local guid    = player:GetGUIDLow()
+    local guid    = AP.RT.GetGUID(player)
     local rec     = AP.LoadMastery(guid)
     local aether  = rec and rec.aether or 0
     local talents = AP.LoadTalents(guid)
+    local snapshot = AP.BuildTalentSnapshot(talents)
 
     GossipReset(player)
 
     GossipAdd(player, 0,
-        string.format("Essence: %d  |  Spend on a stat to boost absorption.", aether),
+        "Talents specialize your Mastery absorption into one or two stats you choose. "..
+        "Primary stats allow up to 3 ranks, Secondary stats up to 2. This bonus has no "..
+        "separate ceiling of its own -- but spreading investment across more stats reduces "..
+        "how strongly each one is emphasized.",
         SENDER_TALENT, 0)
+    GossipAdd(player, 0,
+        string.format("Essence: %d", aether),
+        SENDER_TALENT, 0)
+    GossipAdd(player, 0, "View exact formula / advanced details", SENDER_TALENT, 20)
 
     for statIdx = 0, 4 do
-        local name    = AP.StatNames[statIdx]
-        local rank    = talents[statIdx] or 0
-        local maxRank = (rank < AP.Config.TalentPrimaryRanks) and
-                        AP.Config.TalentPrimaryRanks or AP.Config.TalentSecondaryRanks
-        -- Determine if primary (highest rank among all stats, or only invested)
-        local isPrimary = true
-        for idx, r in pairs(talents) do
-            if idx ~= statIdx and r > rank then isPrimary = false; break end
-        end
-        local actualMax = isPrimary and AP.Config.TalentPrimaryRanks or AP.Config.TalentSecondaryRanks
-        local cost    = (rank < actualMax) and AP.TalentCost(rank, isPrimary) or 0
-        local bonus   = rank * (isPrimary and AP.Config.TalentPrimaryBonus or AP.Config.TalentSecondaryBonus)
+        local stat = snapshot.stats[statIdx]
+        local name, rank, actualMax = stat.name, stat.rank, stat.maxRank
+        local cost, bonus = stat.nextCost, stat.bonusPct / 100
 
         local label
         if rank >= actualMax then
@@ -390,7 +428,7 @@ local function ShowTalentPage(player)
             label = string.format("%s  [Rank %d/%d -- Next: %d Essence  +%.0f%% -> +%.0f%%]",
                 name, rank, actualMax, cost,
                 bonus * 100,
-                (bonus + (isPrimary and AP.Config.TalentPrimaryBonus or AP.Config.TalentSecondaryBonus)) * 100)
+                stat.nextBonusPct)
         end
 
         GossipAdd(player, 6, label, SENDER_TALENT, 10 + statIdx)
@@ -401,69 +439,83 @@ local function ShowTalentPage(player)
 end
 
 local function BuyTalentRank(player, statIndex)
-    local guid    = player:GetGUIDLow()
-    local rec     = AP.LoadMastery(guid)
-    local aether  = rec and rec.aether or 0
-    local talents = AP.LoadTalents(guid)
-    local rank    = talents[statIndex] or 0
-    local name    = AP.StatNames[statIndex]
-
-    -- Determine if primary
-    local isPrimary = true
-    for idx, r in pairs(talents) do
-        if idx ~= statIndex and r > rank then isPrimary = false; break end
-    end
-    local maxRank = isPrimary and AP.Config.TalentPrimaryRanks or AP.Config.TalentSecondaryRanks
-
-    if rank >= maxRank then
+    local name = AP.StatNames[statIndex]
+    local result = AP.API and AP.API.ExecuteTalentPurchase
+        and AP.API.ExecuteTalentPurchase(player, statIndex)
+        or { ok=false, status="SERVICE_UNAVAILABLE" }
+    if result.status == "MAX_RANK" then
         AP.Try(function()
-            player:SendBroadcastMessage(string.format(
+            AP.RT.SendMessage(player,string.format(
                 "|cff9966ff[Worldsoul]|r %s is already at max rank.", name))
         end, "talent max broadcast")
         ShowTalentPage(player)
         return
     end
-
-    local cost = AP.TalentCost(rank, isPrimary)
-    if aether < cost then
+    if result.status == "INSUFFICIENT_ESSENCE" then
         AP.Try(function()
-            player:SendBroadcastMessage(string.format(
-                "|cffff4444[Worldsoul]|r Not enough Essence. Need %d, have %d.", cost, aether))
+            AP.RT.SendMessage(player,string.format(
+                "|cffff4444[Worldsoul]|r Not enough Essence. Need %d, have %d.",
+                result.cost or 0, result.oldBalance or 0))
         end, "talent cost broadcast")
         ShowTalentPage(player)
         return
     end
-
-    -- Deduct Aether and save new rank
-    local newAether = aether - cost
-    local newRank   = rank + 1
-    CharDBQuery(string.format([[
-        INSERT INTO `ap_mastery` (`guid`, `aether`, `mastery`)
-        VALUES (%d, %d, 0)
-        ON DUPLICATE KEY UPDATE `aether` = %d;
-    ]], guid, newAether, newAether))
-    AP.SaveTalent(guid, statIndex, newRank)
-    CharDBQuery("COMMIT;")
-
-    local bonus = newRank * (isPrimary and AP.Config.TalentPrimaryBonus or AP.Config.TalentSecondaryBonus)
+    if not result.ok then
+        AP.Try(function()
+            AP.RT.SendMessage(player,"|cffff4444[Worldsoul]|r Talent investment is currently unavailable.")
+        end, "talent unavailable broadcast")
+        ShowTalentPage(player)
+        return
+    end
     AP.Try(function()
-        player:SendBroadcastMessage(string.format(
-            "|cff9966ff[Worldsoul]|r %s Rank %d unlocked! Absorption cap +%.0f%%.",
-            name, newRank, bonus * 100))
+        AP.RT.SendMessage(player,string.format(
+            "|cff9966ff[Worldsoul]|r %s Rank %d unlocked! Talent amplifier is now +%.0f%% "..
+            "(no separate cap on this bonus -- spreading investment across more stats reduces each one's amplifier).",
+            name, result.newRank or 0, result.newBonusPct or 0))
     end, "talent buy broadcast")
-    AP.Log(string.format("Talent: guid=%d stat=%d rank=%d", guid, statIndex, newRank))
 
     ShowTalentPage(player)
+end
+
+-- ---- TALENT ADVANCED DETAILS PAGE ----
+-- Layer 3: the exact formula. No "cap" language anywhere here -- talentMult is an
+-- uncapped per-stat multiplier layered on top of Mastery's own separately-capped
+-- (soft ~85% asymptote) absorption percentage. See E2j12 Permanent Stat Registry (§4).
+local function ShowTalentDetailPage(player)
+    GossipReset(player)
+
+    GossipAdd(player, 0, "Talents -- Advanced Details", SENDER_TALENT, 0)
+    GossipAdd(player, 0, string.format(
+        "Primary stat: +%.0f%% per rank, up to %d ranks (max +%.0f%%).",
+        AP.Config.TalentPrimaryBonus * 100, AP.Config.TalentPrimaryRanks,
+        AP.Config.TalentPrimaryBonus * AP.Config.TalentPrimaryRanks * 100), SENDER_TALENT, 0)
+    GossipAdd(player, 0, string.format(
+        "Secondary stat: +%.0f%% per rank, up to %d ranks (max +%.0f%%).",
+        AP.Config.TalentSecondaryBonus * 100, AP.Config.TalentSecondaryRanks,
+        AP.Config.TalentSecondaryBonus * AP.Config.TalentSecondaryRanks * 100), SENDER_TALENT, 0)
+    GossipAdd(player, 0,
+        "This bonus is a multiplier applied on top of your Mastery Absorption percentage for "..
+        "that one stat -- it has no independent ceiling of its own. The number of ranks you can "..
+        "buy is capped, but the resulting bonus is not.",
+        SENDER_TALENT, 0)
+    GossipAdd(player, 0,
+        "Investing in more than one distinct stat reduces the bonus on each (a diminishing-returns "..
+        "penalty for spreading investment thinner). Armor and Weapon-DPS absorption are not affected "..
+        "by Talents at all.",
+        SENDER_TALENT, 0)
+
+    GossipAdd(player, 1, "<< Back to Talents", SENDER_TALENT, 0)
+    GossipSend(player, "Talent Details", SENDER_TALENT)
 end
 
 -- ---- VIEW ATTUNED ITEMS PAGE ----
 -- Shows total absorbed stats across all attuned items account-wide,
 -- filtered by armor class. Mirrors Synastria's "View Attuned Items" panel.
 local function ShowAttunesPage(player)
-    local guid        = player:GetGUIDLow()
+    local guid        = AP.RT.GetGUID(player)
     local accountId   = AP.GetAccountId(guid)
-    local playerClass = player:GetClass()
-    local level       = player:GetLevel()
+    local playerClass = AP.RT.GetClass(player)
+    local level       = AP.RT.GetLevel(player)
     local rec         = AP.LoadMastery(guid)
     local masteryRank = rec and rec.mastery or 0
 
@@ -477,7 +529,7 @@ local function ShowAttunesPage(player)
     -- Count total attuned items account-wide
     local totalAttuned = 0
     AP.Try(function()
-        local q = CharDBQuery(string.format(
+        local q = AP.DB.Query(string.format(
             "SELECT COUNT(*) FROM `ap_item_attune` WHERE `guid` = %d AND `attuned` = 1;",
             guid))
         if q then totalAttuned = tonumber(q:GetUInt32(0)) or 0 end
@@ -486,7 +538,7 @@ local function ShowAttunesPage(player)
     -- Count account-wide snapshots matching this class
     local accountSnapshots = 0
     AP.Try(function()
-        local q = CharDBQuery(string.format(
+        local q = AP.DB.Query(string.format(
             "SELECT COUNT(*) FROM `ap_item_snapshot` WHERE `guid` = %d;",
             accountId))
         if q then accountSnapshots = tonumber(q:GetUInt32(0)) or 0 end
@@ -529,7 +581,7 @@ local function ShowAttunesPage(player)
     GossipSend(player, "Attuned Items", SENDER_ATTUNES)
 end
 local function ShowThreatPage(player)
-    local guid    = player:GetGUIDLow()
+    local guid    = AP.RT.GetGUID(player)
     local session = AP._session and AP._session[guid] or { threat = 0, momentum = 0 }
     local threat  = session.threat or 0
     local momentum = session.momentum or 0
@@ -613,14 +665,14 @@ end
 function AP.OpenUI(player)
     AP.Try(function()
         ShowMainMenu(player)
-        AP.Log("UI open via Chat for guid=" .. tostring(player:GetGUIDLow()))
+        AP.Log("UI open via Chat for guid=" .. tostring(AP.RT.GetGUID(player)))
     end, "AP.OpenUI")
 end
 
 -- ============================================================
 -- GOSSIP EVENT HANDLER
 -- Confirmed signature from live probe:
---   RegisterPlayerGossipEvent(menu_id, 2, callback)
+--   AP.RT.RegisterPlayerGossipEvent(menu_id, 2, callback)
 --   menu_id must match the sender passed to GossipSendMenu
 --   callback args: (event, player, sender, intid)
 --
@@ -655,35 +707,26 @@ local function HandleGossipSelect(player, sender, intid)
             if intid == 0 then
                 ShowProgressionPage(player)
             elseif intid == 10 then
-                -- Buy mastery rank
-                local guid    = player:GetGUIDLow()
-                local rec     = AP.LoadMastery(guid)
-                local aether  = rec and rec.aether or 0
-                local mastery = rec and rec.mastery or 0
-                local cost    = AP.MasteryCost(mastery)
-
-                if aether >= cost then
-                    local newAether  = aether - cost
-                    local newMastery = mastery + 1
-                    CharDBQuery(string.format([[
-                        INSERT INTO `ap_mastery` (`guid`, `aether`, `mastery`)
-                        VALUES (%d, %d, %d)
-                        ON DUPLICATE KEY UPDATE `aether` = %d, `mastery` = %d;
-                    ]], guid, newAether, newMastery, newAether, newMastery))
-                    CharDBQuery(string.format(
-                        "INSERT INTO `ap_mastery_spend` (`guid`, `amount`) VALUES (%d, %d);",
-                        guid, cost))
+                -- Buy mastery rank - delegates to the shared AP.Mastery.Purchase service
+                -- (E2j5) so the human menu and the bot bridge use exactly one implementation.
+                local result = AP.Mastery.Purchase(player)
+                if result.status == "SUCCESS" then
                     AP.Try(function()
-                        player:SendBroadcastMessage(string.format(
-                            "|cff9966ff[Worldsoul]|r Mastery Rank %d purchased!", newMastery))
+                        AP.RT.SendMessage(player,string.format(
+                            "|cff9966ff[Worldsoul]|r Mastery Rank %d purchased!", result.newRank))
                     end, "SendBroadcastMessage mastery buy")
-                    AP.Log("Mastery purchased: guid=" .. guid .. " rank=" .. newMastery)
+                elseif result.status == "DATABASE_FAILURE" then
+                    AP.Try(function()
+                        AP.RT.SendMessage(player,"|cffff4444[Worldsoul]|r Purchase failed - try again.")
+                    end, "SendBroadcastMessage mastery fail")
                 else
                     AP.Try(function()
-                        player:SendBroadcastMessage("|cffff4444[Worldsoul]|r Not enough Essence.")
+                        AP.RT.SendMessage(player,"|cffff4444[Worldsoul]|r Not enough Essence.")
                     end, "SendBroadcastMessage mastery fail")
                 end
                 ShowProgressionPage(player)
+            elseif intid == 20 then
+                ShowProgressionDetailPage(player)
             end
 
         -- ---- EQUIP PAGE CLICKS ----
@@ -699,59 +742,41 @@ local function HandleGossipSelect(player, sender, intid)
             -- intid 10-14 = buy rank for stat 0-4
             if intid >= 10 and intid <= 14 then
                 BuyTalentRank(player, intid - 10)
+            elseif intid == 20 then
+                ShowTalentDetailPage(player)
             else
                 ShowTalentPage(player)
             end
 
         -- ---- WORLD THREAT PAGE CLICKS ----
         elseif sender == SENDER_TOGGLE then
-            local guid    = player:GetGUIDLow()
-            local session = AP._session and AP._session[guid]
-            if not session then
-                AP._session[guid] = { threat = 0, momentum = 0.0, momentumKills = 0, kills = {} }
-                session = AP._session[guid]
-            end
             if intid == 0 then
                 ShowThreatPage(player)
             elseif intid == 20 then
-                if session.threat < AP.Config.ThreatMax then
-                    local old = session.threat
-                    session.threat = session.threat + 1
-                    if AP.SaveThreatToDB then AP.SaveThreatToDB(guid, session) end
-                    if AP.API and AP.API.DispatchHook then
-                        AP.API.DispatchHook("OnThreatChanged", { guid=guid, oldLevel=old, newLevel=session.threat, momentum=session.momentum })
-                    end
-                    player:SendBroadcastMessage(string.format(
+                local result = AP.API and AP.API.ExecuteWorldThreatAction
+                    and AP.API.ExecuteWorldThreatAction(player, "increase")
+                if result and result.ok then
+                    AP.RT.SendMessage(player,string.format(
                         "|cff9966ff[Worldsoul]|r World Threat raised to %s (%d).",
-                        AP.GetThreatName(session.threat), session.threat))
+                        result.name, result.newLevel))
                 end
                 ShowThreatPage(player)
             elseif intid == 21 then
-                if session.threat > 0 then
-                    local old = session.threat
-                    session.threat = session.threat - 1
-                    session.momentum = 0.0
-                    session.momentumKills = 0
-                    if AP.SaveThreatToDB then AP.SaveThreatToDB(guid, session) end
-                    if AP.API and AP.API.DispatchHook then
-                        AP.API.DispatchHook("OnThreatChanged", { guid=guid, oldLevel=old, newLevel=session.threat, momentum=0 })
-                    end
-                    player:SendBroadcastMessage(string.format(
+                local result = AP.API and AP.API.ExecuteWorldThreatAction
+                    and AP.API.ExecuteWorldThreatAction(player, "decrease")
+                if result and result.ok then
+                    AP.RT.SendMessage(player,string.format(
                         "|cff888888[Worldsoul]|r World Threat lowered to %s (%d). Momentum reset.",
-                        AP.GetThreatName(session.threat), session.threat))
+                        result.name, result.newLevel))
                 end
                 ShowThreatPage(player)
             elseif intid == 22 then
-                local old = session.threat
-                session.threat = 0
-                session.momentum = 0.0
-                session.momentumKills = 0
-                if AP.SaveThreatToDB then AP.SaveThreatToDB(guid, session) end
-                if AP.API and AP.API.DispatchHook then
-                    AP.API.DispatchHook("OnThreatChanged", { guid=guid, oldLevel=old, newLevel=0, momentum=0 })
+                local result = AP.API and AP.API.ExecuteWorldThreatAction
+                    and AP.API.ExecuteWorldThreatAction(player, "reset")
+                if result and result.ok then
+                    AP.RT.SendMessage(player,
+                        "|cff888888[Worldsoul]|r World Threat reset to Peaceful. Momentum cleared.")
                 end
-                player:SendBroadcastMessage(
-                    "|cff888888[Worldsoul]|r World Threat reset to Peaceful. Momentum cleared.")
                 ShowThreatPage(player)
             end
 
@@ -804,7 +829,7 @@ local function HandleGossipSelect(player, sender, intid)
             end
 
         else
-            AP.Try(function() player:GossipComplete() end, "GossipComplete fallback")
+            AP.Try(function() AP.UI.CloseMenu(player) end, "GossipComplete fallback")
         end
 
     end, "AP gossip select")
@@ -817,7 +842,7 @@ end
 -- The player object appears twice -- skip the duplicate with _.
 for _, sid in ipairs({SENDER_MAIN, SENDER_MASTERY, SENDER_EQUIP, SENDER_SLOT, SENDER_TALENT, SENDER_TOGGLE, SENDER_ATTUNES, 102, 201, 210, 211, 212, 213, 214, 215, 220, 221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231, 232, 240, 241, 242, 243, 244, 245, 250, 251, 252, 253, 254, 255}) do
     local s = sid
-    RegisterPlayerGossipEvent(s, 2, function(event, player, _, sender, intid)
+    AP.RT.RegisterPlayerGossipEvent(s, 2, function(event, player, _, sender, intid)
         HandleGossipSelect(player, sender, intid)
     end)
 end

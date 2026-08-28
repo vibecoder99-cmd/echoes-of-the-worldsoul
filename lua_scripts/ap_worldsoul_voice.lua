@@ -100,7 +100,7 @@ AP.Voice.InvestGapMessage =
 
 function AP.Voice.Speak(player, triggerKey)
     local ok, err = pcall(function()
-        local guid = player:GetGUIDLow()
+        local guid = AP.RT.GetGUID(player)
         local key  = guid .. "_" .. triggerKey
 
         local count = (AP.Voice.Counters[key] or 0) + 1
@@ -110,7 +110,7 @@ function AP.Voice.Speak(player, triggerKey)
         local index     = math.min(count, #messages)
         local line      = messages[index]
 
-        player:SendBroadcastMessage(
+        AP.RT.SendMessage(player,
             "|cff9966ff[Worldsoul]|r " .. line
         )
     end)
@@ -130,7 +130,7 @@ end
 -- ============================================================
 
 function AP.Voice.Reset(player, triggerKey)
-    local guid = player:GetGUIDLow()
+    local guid = AP.RT.GetGUID(player)
     local key  = guid .. "_" .. triggerKey
     AP.Voice.Counters[key] = nil
 end

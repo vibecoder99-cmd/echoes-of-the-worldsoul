@@ -32,24 +32,24 @@ AP.Tutorial.Messages = {
 
 function AP.Tutorial.Trigger(player, key, customMsg)
     local ok, err = pcall(function()
-        local accountId     = player:GetAccountId()
+        local accountId     = AP.RT.GetAccountId(player)
         local milestoneType = "tutorial_" .. key
 
-        local check = CharDBQuery(string.format(
+        local check = AP.DB.Query(string.format(
             "SELECT 1 FROM ap_aether_milestones WHERE account_id = %d AND milestone_type = '%s' AND milestone_id = 1 LIMIT 1",
             accountId, milestoneType
         ))
         if check then return end
 
-        CharDBExecute(string.format(
+        AP.DB.ExecuteAsync(string.format(
             "INSERT IGNORE INTO ap_aether_milestones (account_id, milestone_type, milestone_id) VALUES (%d, '%s', 1)",
             accountId, milestoneType
         ))
-        CharDBExecute("COMMIT")
+        AP.DB.ExecuteAsync("COMMIT")
 
         local msg = customMsg or AP.Tutorial.Messages[key]
         if msg then
-            player:SendBroadcastMessage(msg)
+            AP.RT.SendMessage(player,msg)
         end
     end)
     if not ok then
@@ -59,19 +59,19 @@ end
 
 function AP.Tutorial.CheckLoginTriggers(player)
     local ok, err = pcall(function()
-        local guid      = player:GetGUIDLow()
-        local accountId = player:GetAccountId()
+        local guid      = AP.RT.GetGUID(player)
+        local accountId = AP.RT.GetAccountId(player)
 
         -- Delay the first_login whisper so it lands after the player fully loads in
-        CreateLuaEvent(function()
-            local p = GetPlayerByGUID(guid)
+        AP.RT.CreateTimer(function()
+            local p = AP.RT.GetPlayerByGUID(guid)
             if p then
                 AP.Tutorial.Trigger(p, "first_login")
             end
         end, 8000, 1)
 
         -- first_hundred_essence: check ap_mastery for 100+ Essence
-        local essenceRow = CharDBQuery(string.format(
+        local essenceRow = AP.DB.Query(string.format(
             "SELECT `aether` FROM `ap_mastery` WHERE `guid` = %d LIMIT 1",
             guid
         ))
@@ -80,7 +80,7 @@ function AP.Tutorial.CheckLoginTriggers(player)
         end
 
         -- first_attune: check ap_item_attune for at least one fully attuned item
-        local attuneRow = CharDBQuery(string.format(
+        local attuneRow = AP.DB.Query(string.format(
             "SELECT 1 FROM `ap_item_attune` WHERE `guid` = %d AND `attuned` = 1 LIMIT 1",
             guid
         ))
@@ -93,7 +93,7 @@ function AP.Tutorial.CheckLoginTriggers(player)
     end
 end
 
-RegisterPlayerEvent(3, function(event, player)
+AP.RT.RegisterEvent("player", 3, function(event, player)
     AP.Tutorial.CheckLoginTriggers(player)
 end)
 
@@ -228,25 +228,25 @@ AP.Codex.Topics = {
 }
 
 function AP.Codex.ShowIndex(player, npc)
-    player:GossipClearMenu()
-    player:GossipMenuAddItem(0, "|cff9966ffWorldsoul Codex|r — Knowledge of the Echoes", 220, 0)
+    AP.UI.ClearMenu(player)
+    AP.UI.AddItem(player,0, "|cff9966ffWorldsoul Codex|r — Knowledge of the Echoes", 220, 0)
     for i, topic in ipairs(AP.Codex.Topics) do
-        player:GossipMenuAddItem(topic.icon, topic.title, 220 + i, 0)
+        AP.UI.AddItem(player,topic.icon, topic.title, 220 + i, 0)
     end
-    player:GossipMenuAddItem(1, "<< Back to Main Menu", 232, 0)
-    player:GossipSendMenu(1, player, 220)
+    AP.UI.AddItem(player,1, "<< Back to Main Menu", 232, 0)
+    AP.UI.SendMenu(player,1, player, 220)
 end
 
 function AP.Codex.ShowTopic(player, npc, topicIndex)
     local topic = AP.Codex.Topics[topicIndex]
     if not topic then return end
 
-    player:GossipClearMenu()
+    AP.UI.ClearMenu(player)
     for _, line in ipairs(topic.pages) do
-        player:GossipMenuAddItem(0, line, 220 + topicIndex, 0)
+        AP.UI.AddItem(player,0, line, 220 + topicIndex, 0)
     end
-    player:GossipMenuAddItem(1, "<< Back to Codex", 220, 0)
-    player:GossipSendMenu(1, player, 220 + topicIndex)
+    AP.UI.AddItem(player,1, "<< Back to Codex", 220, 0)
+    AP.UI.SendMenu(player,1, player, 220 + topicIndex)
 end
 
 -- Called from ap_ui.lua HandleGossipSelect when sender is in range 220-232.

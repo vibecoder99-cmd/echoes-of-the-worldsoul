@@ -21,20 +21,15 @@
 
 AP = AP or {}
 AP.Cap = AP.Cap or {}
+AP.CapInfo = AP.CapInfo or {}
 
 -- Print immediately at script load time (no event required)
 print("[Eluna] probe: zz_eluna_probe.lua loaded at script init time.")
 print("[Eluna] probe: CharDBDirectExecute available: " .. tostring(type(_G["CharDBDirectExecute"]) == "function"))
 
--- Try registering on every plausible server event
-for _, evId in ipairs({1, 2, 3, 6, 7, 11, 14, 15, 16}) do
-    pcall(function()
-        RegisterServerEvent(evId, function()
-            -- Only print once per event ID
-            print("[Eluna] probe: ServerEvent " .. evId .. " fired!")
-        end)
-    end)
-end
+-- Production probe records registration availability without synthetic delivery.
+-- High-frequency ALE delivery tests are intentionally excluded from package load.
+print("[Eluna] probe: server-event delivery probes: SKIPPED (production read-only probe)")
 
 -- Also do the capability check immediately at load time
 local function probeNow()
@@ -45,50 +40,26 @@ local function probeNow()
         local ok = (type(fn) == "function")
         print(string.format("[Eluna] probe: %s: %s", name, ok and "YES" or "NO"))
         AP.Cap[name] = ok
+        AP.CapInfo[name] = ok and "global function available" or "global function unavailable"
         return ok, fn
     end
 
     probe("RegisterServerEvent")
     probe("RegisterPlayerEvent")
     probe("CharDBQuery")
+    probe("CharDBQueryAsync")
     probe("CharDBExecute")
-    local dxOk, dxFn = probe("CharDBDirectExecute")
+    probe("CharDBExecuteAsync")
+    probe("CharDBDirectExecute")
+    probe("WorldDBQuery")
+    probe("WorldDBQueryAsync")
+    probe("WorldDBExecute")
+    probe("WorldDBExecuteAsync")
+    probe("WorldDBDirectExecute")
 
-    if dxOk then
-        -- Defer the write test until after world initialization completes.
-        pcall(function()
-            RegisterServerEvent(14, function()
-                -- Test 1: CharDBDirectExecute (async on this build, expect FAIL)
-                local ok1, err1 = pcall(function()
-                    dxFn("INSERT IGNORE INTO `ap_mastery` (`guid`,`aether`,`mastery`) VALUES (7777777,1,0);")
-                end)
-                if ok1 then
-                    local q1 = _G["CharDBQuery"] and _G["CharDBQuery"](
-                        "SELECT `aether` FROM `ap_mastery` WHERE `guid` = 7777777 LIMIT 1;")
-                    local val1 = q1 and (tonumber(tostring(q1:GetUInt64(0))) or 0) or 0
-                    print("[Eluna] probe: CharDBDirectExecute write test (post-init): " ..
-                        (val1 == 1 and "PASS (synchronous)" or "FAIL (got " .. val1 .. " â€” async)"))
-                    dxFn("DELETE FROM `ap_mastery` WHERE `guid` = 7777777;")
-                else
-                    print("[Eluna] probe: CharDBDirectExecute post-init ERROR: " .. tostring(err1))
-                end
-
-                -- Test 2: CharDBQuery INSERT (sync connection â€” expect PASS if perms correct)
-                local q2fn = _G["CharDBQuery"]
-                if q2fn then
-                    q2fn("DELETE FROM `ap_mastery` WHERE `guid` = 6666666;")
-                    q2fn("INSERT IGNORE INTO `ap_mastery` (`guid`,`aether`,`mastery`) VALUES (6666666,42,0);")
-                    local q2 = q2fn("SELECT `aether` FROM `ap_mastery` WHERE `guid` = 6666666 LIMIT 1;")
-                    local val2 = q2 and (tonumber(tostring(q2:GetUInt64(0))) or 0) or 0
-                    print("[Eluna] probe: CharDBQuery INSERT write test (post-init): " ..
-                        (val2 == 42 and "PASS (writes visible)" or "FAIL (got " .. val2 .. ")"))
-                    q2fn("DELETE FROM `ap_mastery` WHERE `guid` = 6666666;")
-                end
-            end)
-        end)
-        print("[Eluna] probe: CharDBDirectExecute + CharDBQuery write tests scheduled for event 14.")
-    end
-
+    -- The legacy event-14 test inserted and deleted temporary ap_mastery rows.
+    -- Inventory write-capable globals above, but never execute them here.
+    print("[Eluna] probe: legacy database write test: SKIPPED (production read-only probe)")
     print("[Eluna] probe: === Load-time check complete ===")
 end
 
@@ -97,7 +68,7 @@ probeNow()
 
 -- Also wire player login for player-level checks
 AP._probeRan = false
-RegisterPlayerEvent(3, function(event, player)
+AP.RT.RegisterEvent("player", 3, function(event, player)
     if AP._probeRan then return end
     AP._probeRan = true
     print("[Eluna] probe: Player login hook fired.")
@@ -110,6 +81,7 @@ RegisterPlayerEvent(3, function(event, player)
 
     local setStatOk = pm("SetStat")
     AP.Cap.SetStat = setStatOk
+    AP.CapInfo.SetStat = setStatOk and "Player:SetStat available" or "Player:SetStat unavailable"
     if not setStatOk and AP.Config and AP.Config.DirectStatMode then
         AP.Config.DirectStatMode = false
         print("[AP] WARN: Player:SetStat not available. Forcing DirectStatMode OFF.")
@@ -133,6 +105,7 @@ RegisterPlayerEvent(3, function(event, player)
     --   equipped bags: bag=19-22, slots 0-35 (up to 36 slots each)
     -- Out-of-range/empty slots return nil safely; no size lookup needed.
     AP.Cap.GetBagSize = false
+    AP.CapInfo.GetBagSize = "confirmed unsupported; use GetItemByPos"
     print("[Eluna] probe: Player:GetBagSize: NO (confirmed unsupported — use GetItemByPos)")
 
     print("[Eluna] probe: CharDBDirectExecute: " .. (AP.Cap.CharDBDirectExecute and "YES" or "NO"))

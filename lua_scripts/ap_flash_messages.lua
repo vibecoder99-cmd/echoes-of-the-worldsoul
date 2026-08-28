@@ -279,6 +279,39 @@ AP.BossFlashMessages = {
 }
 
 -- ============================================================
+-- MULTI-UNIT ENCOUNTER DEDUP KEYS
+-- Maps creature entries that share one flash message across a
+-- multi-unit fight to a single logical encounter key, so
+-- AP.Visage.TryBossFlash only flashes once per completed
+-- encounter instead of once per linked creature.
+-- Entries not listed here use their own numeric entry as the
+-- key (i.e. single-unit bosses are unaffected).
+-- ============================================================
+AP.BossEncounterKey = {
+    -- ToC: Val'kyr Twins (Eydis Darkbane, Fjola Lightbane)
+    [34496] = "ICC_VALKYR_TWINS",
+    [34497] = "ICC_VALKYR_TWINS",
+
+    -- Black Temple: Illidari Council (four casters)
+    [22949] = "BLACK_TEMPLE_ILLIDARI_COUNCIL",
+    [22950] = "BLACK_TEMPLE_ILLIDARI_COUNCIL",
+    [22951] = "BLACK_TEMPLE_ILLIDARI_COUNCIL",
+    [22952] = "BLACK_TEMPLE_ILLIDARI_COUNCIL",
+
+    -- AQ40: Twin Emperors (Vek'nilash, Vek'lor)
+    [15275] = "AQ40_TWIN_EMPERORS",
+    [15276] = "AQ40_TWIN_EMPERORS",
+
+    -- ICC: Blood Prince Council (Valanar, Keleseth, Taldaram)
+    -- Dedup applied defensively; encounter-completion semantics
+    -- for this fight were not independently verified against its
+    -- boss script.
+    [37970] = "ICC_BLOOD_PRINCE_COUNCIL",
+    [37972] = "ICC_BLOOD_PRINCE_COUNCIL",
+    [37973] = "ICC_BLOOD_PRINCE_COUNCIL",
+}
+
+-- ============================================================
 -- AP.GetBossFlash
 -- Looks up a flash message for a creature entry.
 -- Returns the specific message, or a fallback based on context.

@@ -27,7 +27,7 @@ end
 
 function AP.API.GetPlayerSession(player)
     if not player then return nil end
-    local ok, guid = pcall(function() return player:GetGUIDLow() end)
+    local ok, guid = pcall(function() return AP.RT.GetGUID(player) end)
     if not ok or not guid then return nil end
     return AP._session and AP._session[guid] or nil
 end
@@ -56,12 +56,12 @@ end
 
 function AP.API.GetTotalAttunedCount(player)
     if not player then return 0 end
-    local ok, guid = pcall(function() return player:GetGUIDLow() end)
+    local ok, guid = pcall(function() return AP.RT.GetGUID(player) end)
     if not ok or not guid then return 0 end
     if AP.Visage and AP.Visage.GetAttunedCount then
         return AP.Visage.GetAttunedCount(guid)
     end
-    local q = CharDBQuery(string.format(
+    local q = AP.DB.Query(string.format(
         "SELECT COUNT(*) FROM `ap_item_attune` WHERE `guid` = %d AND `attuned` = 1", guid))
     if q then return tonumber(tostring(q:GetUInt32(0))) or 0 end
     return 0
@@ -69,7 +69,7 @@ end
 
 function AP.API.GetRackCount(player)
     if not player then return 0, 3 end
-    local ok, guid = pcall(function() return player:GetGUIDLow() end)
+    local ok, guid = pcall(function() return AP.RT.GetGUID(player) end)
     if not ok or not guid then return 0, 3 end
     local used = AP.Rack and AP.Rack.CountSlots(guid) or 0
     local cap  = AP.Rack and AP.Rack.GetCapacity(guid) or 3
@@ -78,7 +78,7 @@ end
 
 function AP.API.GetEssence(player)
     if not player then return 0 end
-    local ok, guid = pcall(function() return player:GetGUIDLow() end)
+    local ok, guid = pcall(function() return AP.RT.GetGUID(player) end)
     if not ok or not guid then return 0 end
     local rec = AP.LoadMastery(guid)
     return rec and rec.aether or 0
@@ -86,7 +86,7 @@ end
 
 function AP.API.GetWorldsoulResidue(player)
     if not player then return 0 end
-    local ok, accountId = pcall(function() return player:GetAccountId() end)
+    local ok, accountId = pcall(function() return AP.RT.GetAccountId(player) end)
     if not ok or not accountId then return 0 end
     if AP.Forge and AP.Forge.GetResidue then
         return AP.Forge.GetResidue(accountId) or 0
@@ -96,7 +96,7 @@ end
 
 function AP.API.GetMasteryRank(player)
     if not player then return 0 end
-    local ok, guid = pcall(function() return player:GetGUIDLow() end)
+    local ok, guid = pcall(function() return AP.RT.GetGUID(player) end)
     if not ok or not guid then return 0 end
     local rec = AP.LoadMastery(guid)
     return rec and rec.mastery or 0
@@ -109,7 +109,7 @@ end
 
 function AP.API.GetLevelScalar(player)
     if not player then return 0 end
-    local ok, level = pcall(function() return player:GetLevel() end)
+    local ok, level = pcall(function() return AP.RT.GetLevel(player) end)
     if not ok or not level then return 0 end
     return AP.LevelAbsorbScalar(level)
 end
@@ -120,7 +120,7 @@ end
 
 function AP.API.GetVisageState(player)
     if not player then return {} end
-    local ok, guid = pcall(function() return player:GetGUIDLow() end)
+    local ok, guid = pcall(function() return AP.RT.GetGUID(player) end)
     if not ok or not guid then return {} end
     if AP.Visage then
         if not AP.Visage.Cache[guid] then AP.Visage.LoadForChar(guid) end

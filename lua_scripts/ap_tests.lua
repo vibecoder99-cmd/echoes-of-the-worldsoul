@@ -296,34 +296,34 @@ end
 local dbTests = {}
 
 -- Force-close any open implicit read transaction on the sync connection.
-CharDBQuery("COMMIT;")
+AP.DB.Execute("COMMIT;")
 
 local function cleanTestGuid()
     pcall(function()
-        CharDBQuery(string.format("DELETE FROM `ap_item_attune`    WHERE `guid` = %d;", AP_TEST_GUID))
-        CharDBQuery(string.format("DELETE FROM `ap_item_snapshot`  WHERE `guid` = %d;", AP_TEST_GUID))
-        CharDBQuery(string.format("DELETE FROM `ap_mastery`        WHERE `guid` = %d;", AP_TEST_GUID))
-        CharDBQuery(string.format("DELETE FROM `ap_slot_mastery`   WHERE `guid` = %d;", AP_TEST_GUID))
-        CharDBQuery(string.format("DELETE FROM `ap_quest_rewarded` WHERE `guid` = %d;", AP_TEST_GUID))
-        CharDBQuery(string.format("DELETE FROM `ap_dissolved_items` WHERE `account_id` = %d;", AP_TEST_GUID))
-        CharDBQuery(string.format("DELETE FROM `ap_aether_sinks`   WHERE `account_id` = %d;", AP_TEST_GUID))
-        CharDBQuery(string.format("DELETE FROM `ap_visage`         WHERE `guid` = %d;", AP_TEST_GUID))
-        CharDBQuery(string.format("DELETE FROM `ap_session_state`  WHERE `guid` = %d;", AP_TEST_GUID))
-        CharDBQuery("DELETE FROM `ap_mastery`      WHERE `guid` IN (8888888, 8888887);")
-        CharDBQuery("DELETE FROM `ap_slot_mastery` WHERE `guid` = 8888888;")
+        AP.DB.ExecuteCritical(string.format("DELETE FROM `ap_item_attune`    WHERE `guid` = %d;", AP_TEST_GUID))
+        AP.DB.ExecuteCritical(string.format("DELETE FROM `ap_item_snapshot`  WHERE `guid` = %d;", AP_TEST_GUID))
+        AP.DB.ExecuteCritical(string.format("DELETE FROM `ap_mastery`        WHERE `guid` = %d;", AP_TEST_GUID))
+        AP.DB.ExecuteCritical(string.format("DELETE FROM `ap_slot_mastery`   WHERE `guid` = %d;", AP_TEST_GUID))
+        AP.DB.ExecuteCritical(string.format("DELETE FROM `ap_quest_rewarded` WHERE `guid` = %d;", AP_TEST_GUID))
+        AP.DB.ExecuteCritical(string.format("DELETE FROM `ap_dissolved_items` WHERE `account_id` = %d;", AP_TEST_GUID))
+        AP.DB.ExecuteCritical(string.format("DELETE FROM `ap_aether_sinks`   WHERE `account_id` = %d;", AP_TEST_GUID))
+        AP.DB.ExecuteCritical(string.format("DELETE FROM `ap_visage`         WHERE `guid` = %d;", AP_TEST_GUID))
+        AP.DB.ExecuteCritical(string.format("DELETE FROM `ap_session_state`  WHERE `guid` = %d;", AP_TEST_GUID))
+        AP.DB.ExecuteCritical("DELETE FROM `ap_mastery`      WHERE `guid` IN (8888888, 8888887);")
+        AP.DB.ExecuteCritical("DELETE FROM `ap_slot_mastery` WHERE `guid` = 8888888;")
     end)
 end
 
 dbTests[#dbTests+1] = function()
     return run("DB: RAW direct INSERT into ap_mastery round-trip", function()
-        CharDBQuery("DELETE FROM `ap_mastery` WHERE `guid` = 8888888;")
+        AP.DB.ExecuteCritical("DELETE FROM `ap_mastery` WHERE `guid` = 8888888;")
         -- Use value 1 (tiny, fits in any int type) to rule out BIGINT issues
-        CharDBQuery("INSERT INTO `ap_mastery` (`guid`, `aether`, `mastery`) VALUES (8888888, 1, 0);")
-        local q = CharDBQuery("SELECT `aether` FROM `ap_mastery` WHERE `guid` = 8888888 LIMIT 1;")
-        local val = q and (tonumber(tostring(q:GetUInt64(0))) or 0) or 0
-        CharDBQuery("DELETE FROM `ap_mastery` WHERE `guid` = 8888888;")
+        AP.DB.ExecuteCritical("INSERT INTO `ap_mastery` (`guid`, `aether`, `mastery`) VALUES (8888888, 1, 0);")
+        local q = AP.DB.Query("SELECT `aether` FROM `ap_mastery` WHERE `guid` = 8888888 LIMIT 1;")
+        local val = q and (tonumber(tostring(AP.DB.GetUInt64(q, 0))) or 0) or 0
+        AP.DB.ExecuteCritical("DELETE FROM `ap_mastery` WHERE `guid` = 8888888;")
         -- Also check if the row exists at all
-        local q2 = CharDBQuery("SELECT COUNT(*) FROM `ap_mastery` WHERE `guid` = 8888888;")
+        local q2 = AP.DB.Query("SELECT COUNT(*) FROM `ap_mastery` WHERE `guid` = 8888888;")
         local cnt = q2 and (tonumber(q2:GetUInt32(0)) or 0) or 0
         -- Report what we actually got
         assertEqual(val, 1, "raw insert aether=1 (count=" .. tostring(cnt) .. ")")
@@ -332,12 +332,12 @@ end
 
 dbTests[#dbTests+1] = function()
     return run("DB: RAW INSERT IGNORE + UPDATE into ap_mastery round-trip", function()
-        CharDBQuery("DELETE FROM `ap_mastery` WHERE `guid` = 8888888;")
-        CharDBQuery("INSERT IGNORE INTO `ap_mastery` (`guid`, `aether`, `mastery`) VALUES (8888888, 0, 0);")
-        CharDBQuery("UPDATE `ap_mastery` SET `aether` = `aether` + 100 WHERE `guid` = 8888888;")
-        local q = CharDBQuery("SELECT `aether` FROM `ap_mastery` WHERE `guid` = 8888888 LIMIT 1;")
-        local val = q and (tonumber(tostring(q:GetUInt64(0))) or 0) or 0
-        CharDBQuery("DELETE FROM `ap_mastery` WHERE `guid` = 8888888;")
+        AP.DB.ExecuteCritical("DELETE FROM `ap_mastery` WHERE `guid` = 8888888;")
+        AP.DB.ExecuteCritical("INSERT IGNORE INTO `ap_mastery` (`guid`, `aether`, `mastery`) VALUES (8888888, 0, 0);")
+        AP.DB.ExecuteCritical("UPDATE `ap_mastery` SET `aether` = `aether` + 100 WHERE `guid` = 8888888;")
+        local q = AP.DB.Query("SELECT `aether` FROM `ap_mastery` WHERE `guid` = 8888888 LIMIT 1;")
+        local val = q and (tonumber(tostring(AP.DB.GetUInt64(q, 0))) or 0) or 0
+        AP.DB.ExecuteCritical("DELETE FROM `ap_mastery` WHERE `guid` = 8888888;")
         assertEqual(val, 100, "two-query aether=100")
     end)
 end
@@ -357,13 +357,13 @@ dbTests[#dbTests+1] = function()
     return run("DB: ap_mastery INSERT visible after SELECT on same guid", function()
         -- Test: does SELECT before INSERT on same GUID cause snapshot issue?
         -- First read (opens snapshot), then write, then read again
-        local q1 = CharDBQuery("SELECT `aether` FROM `ap_mastery` WHERE `guid` = 8888887 LIMIT 1;")
-        local before = q1 and (tonumber(tostring(q1:GetUInt64(0))) or 0) or -1  -- -1 = no row
-        CharDBQuery("DELETE FROM `ap_mastery` WHERE `guid` = 8888887;")
-        CharDBQuery("INSERT INTO `ap_mastery` (`guid`, `aether`, `mastery`) VALUES (8888887, 42, 0);")
-        local q2 = CharDBQuery("SELECT `aether` FROM `ap_mastery` WHERE `guid` = 8888887 LIMIT 1;")
-        local after = q2 and (tonumber(tostring(q2:GetUInt64(0))) or 0) or -1
-        CharDBQuery("DELETE FROM `ap_mastery` WHERE `guid` = 8888887;")
+        local q1 = AP.DB.Query("SELECT `aether` FROM `ap_mastery` WHERE `guid` = 8888887 LIMIT 1;")
+        local before = q1 and (tonumber(tostring(AP.DB.GetUInt64(q1, 0))) or 0) or -1  -- -1 = no row
+        AP.DB.ExecuteCritical("DELETE FROM `ap_mastery` WHERE `guid` = 8888887;")
+        AP.DB.ExecuteCritical("INSERT INTO `ap_mastery` (`guid`, `aether`, `mastery`) VALUES (8888887, 42, 0);")
+        local q2 = AP.DB.Query("SELECT `aether` FROM `ap_mastery` WHERE `guid` = 8888887 LIMIT 1;")
+        local after = q2 and (tonumber(tostring(AP.DB.GetUInt64(q2, 0))) or 0) or -1
+        AP.DB.ExecuteCritical("DELETE FROM `ap_mastery` WHERE `guid` = 8888887;")
         -- Report both values regardless of pass/fail
         assertEqual(after, 42, "after INSERT aether=42 (before=" .. tostring(before) .. ")")
     end)
@@ -463,13 +463,13 @@ end
 dbTests[#dbTests+1] = function()
     return run("DB: ap_quest_rewarded dedup  -- second insert is ignored", function()
         cleanTestGuid()
-        CharDBQuery(string.format(
+        AP.DB.ExecuteCritical(string.format(
             "INSERT IGNORE INTO `ap_quest_rewarded` (`guid`, `quest_id`) VALUES (%d, 1001);",
             AP_TEST_GUID))
-        CharDBQuery(string.format(
+        AP.DB.ExecuteCritical(string.format(
             "INSERT IGNORE INTO `ap_quest_rewarded` (`guid`, `quest_id`) VALUES (%d, 1001);",
             AP_TEST_GUID))
-        local q = CharDBQuery(string.format(
+        local q = AP.DB.Query(string.format(
             "SELECT COUNT(*) FROM `ap_quest_rewarded` WHERE `guid` = %d AND `quest_id` = 1001;",
             AP_TEST_GUID))
         local count = q and (tonumber(q:GetUInt32(0)) or 0) or 0
@@ -694,11 +694,11 @@ local questTests = {}
 questTests[#questTests+1] = function()
     return run("QUEST: ap_quest_rewarded prevents double grant", function()
         cleanTestGuid()
-        CharDBQuery(string.format(
+        AP.DB.ExecuteCritical(string.format(
             "INSERT IGNORE INTO `ap_quest_rewarded` (`guid`, `quest_id`) VALUES (%d, 2001);",
             AP_TEST_GUID))
         AP.GrantAether(AP_TEST_GUID, 10)
-        local alreadyGranted = CharDBQuery(string.format(
+        local alreadyGranted = AP.DB.Query(string.format(
             "SELECT 1 FROM `ap_quest_rewarded` WHERE `guid` = %d AND `quest_id` = 2001 LIMIT 1;",
             AP_TEST_GUID))
         assertTrue(alreadyGranted ~= nil, "row exists, would not re-grant")
@@ -711,10 +711,10 @@ end
 questTests[#questTests+1] = function()
     return run("QUEST: Different quest IDs are independent", function()
         cleanTestGuid()
-        CharDBQuery(string.format(
+        AP.DB.ExecuteCritical(string.format(
             "INSERT IGNORE INTO `ap_quest_rewarded` (`guid`, `quest_id`) VALUES (%d, 3001);",
             AP_TEST_GUID))
-        local q2Granted = CharDBQuery(string.format(
+        local q2Granted = AP.DB.Query(string.format(
             "SELECT 1 FROM `ap_quest_rewarded` WHERE `guid` = %d AND `quest_id` = 3002 LIMIT 1;",
             AP_TEST_GUID))
         assertTrue(q2Granted == nil, "quest 3002 not yet granted")
@@ -812,10 +812,45 @@ local forgeTests = {}
 
 local function cleanForgeData()
     pcall(function()
-        CharDBQuery(string.format("DELETE FROM `ap_item_attune`     WHERE `guid` = %d;", AP_TEST_GUID))
-        CharDBQuery(string.format("DELETE FROM `ap_item_snapshot`   WHERE `guid` = %d;", AP_TEST_GUID))
-        CharDBQuery(string.format("DELETE FROM `ap_dissolved_items` WHERE `account_id` = %d;", AP_TEST_GUID))
+        AP.DB.ExecuteCritical(string.format("DELETE FROM `ap_item_attune`        WHERE `guid` = %d;", AP_TEST_GUID))
+        AP.DB.ExecuteCritical(string.format("DELETE FROM `ap_item_snapshot`      WHERE `guid` = %d;", AP_TEST_GUID))
+        AP.DB.ExecuteCritical(string.format("DELETE FROM `ap_dissolved_items`    WHERE `account_id` = %d;", AP_TEST_GUID))
+        AP.DB.ExecuteCritical(string.format("DELETE FROM `ap_dissolution_pending` WHERE `guid` = %d;", AP_TEST_GUID))
+        AP.DB.ExecuteCritical(string.format("DELETE FROM `ap_mastery`            WHERE `guid` = %d;", AP_TEST_GUID))
+        AP.DB.ExecuteCritical(string.format("DELETE FROM `ap_residue`            WHERE `account_id` = %d;", AP_TEST_GUID))
     end)
+end
+
+local function forgePendingStatus(entry)
+    local q = AP.DB.Query(string.format(
+        "SELECT `status` FROM `ap_dissolution_pending` WHERE `guid` = %d AND `item_entry` = %d",
+        AP_TEST_GUID, entry))
+    return q and q:GetString(0) or nil
+end
+
+local function insertForgePending(entry, quality, status)
+    local rewards = AP.Forge.Rewards[quality]
+    local ok = AP.DB.ExecuteCritical(string.format(
+        "INSERT INTO `ap_dissolution_pending` "..
+        "(`guid`,`account_id`,`item_entry`,`item_instance_guid`,`quality`,"..
+        "`essence_reward`,`gold_reward`,`residue_reward`,`status`) "..
+        "VALUES (%d,%d,%d,%d,%d,%d,%d,%d,'%s')",
+        AP_TEST_GUID, AP_TEST_GUID, entry, entry + 900000, quality,
+        rewards.essence, rewards.gold, rewards.residue, status),
+        "APTEST.InsertForgePending")
+    assertTrue(ok, "pending fixture inserted")
+    return rewards
+end
+
+local function withCriticalFailure(targetLabel, fn)
+    local original = AP.DB.ExecuteCritical
+    AP.DB.ExecuteCritical = function(sql, label)
+        if label == targetLabel then return false end
+        return original(sql, label)
+    end
+    local ok, err = pcall(fn)
+    AP.DB.ExecuteCritical = original
+    if not ok then error(err) end
 end
 
 local function ForgePlayer()
@@ -863,10 +898,10 @@ forgeTests[#forgeTests+1] = function()
     return run("FORGE: Attuned item WITHOUT snapshot not in forge list query (snapshot bug regression)", function()
         cleanForgeData()
         local entry = 77001
-        CharDBQuery(string.format(
+        AP.DB.ExecuteCritical(string.format(
             "INSERT INTO `ap_item_attune` (`guid`,`item_entry`,`progress`,`attuned`) "..
             "VALUES (%d,%d,10000,1);", AP_TEST_GUID, entry))
-        local q = CharDBQuery(string.format(
+        local q = AP.DB.Query(string.format(
             "SELECT a.item_entry FROM ap_item_attune a "..
             "JOIN ap_item_snapshot s ON s.guid=%d AND s.item_entry=a.item_entry "..
             "LEFT JOIN ap_dissolved_items d ON d.account_id=%d AND d.item_entry=a.item_entry "..
@@ -881,13 +916,13 @@ forgeTests[#forgeTests+1] = function()
     return run("FORGE: Attuned item WITH snapshot appears in forge list query", function()
         cleanForgeData()
         local entry = 77002
-        CharDBQuery(string.format(
+        AP.DB.ExecuteCritical(string.format(
             "INSERT INTO `ap_item_attune` (`guid`,`item_entry`,`progress`,`attuned`) "..
             "VALUES (%d,%d,10000,1);", AP_TEST_GUID, entry))
-        CharDBQuery(string.format(
+        AP.DB.ExecuteCritical(string.format(
             "INSERT INTO `ap_item_snapshot` (`guid`,`item_entry`,`quality`,`str`,`agi`,`sta`,`int`,`spi`) "..
             "VALUES (%d,%d,3,10.0,5.0,20.0,0.0,0.0);", AP_TEST_GUID, entry))
-        local q = CharDBQuery(string.format(
+        local q = AP.DB.Query(string.format(
             "SELECT a.item_entry FROM ap_item_attune a "..
             "JOIN ap_item_snapshot s ON s.guid=%d AND s.item_entry=a.item_entry "..
             "LEFT JOIN ap_dissolved_items d ON d.account_id=%d AND d.item_entry=a.item_entry "..
@@ -902,16 +937,16 @@ forgeTests[#forgeTests+1] = function()
     return run("FORGE: Already-dissolved item excluded from forge list by LEFT JOIN", function()
         cleanForgeData()
         local entry = 77003
-        CharDBQuery(string.format(
+        AP.DB.ExecuteCritical(string.format(
             "INSERT INTO `ap_item_attune` (`guid`,`item_entry`,`progress`,`attuned`) "..
             "VALUES (%d,%d,10000,1);", AP_TEST_GUID, entry))
-        CharDBQuery(string.format(
+        AP.DB.ExecuteCritical(string.format(
             "INSERT INTO `ap_item_snapshot` (`guid`,`item_entry`,`quality`,`str`,`agi`,`sta`,`int`,`spi`) "..
             "VALUES (%d,%d,3,10.0,0,0,0,0);", AP_TEST_GUID, entry))
-        CharDBQuery(string.format(
+        AP.DB.ExecuteCritical(string.format(
             "INSERT INTO `ap_dissolved_items` (`account_id`,`item_entry`) VALUES (%d,%d);",
             AP_TEST_GUID, entry))
-        local q = CharDBQuery(string.format(
+        local q = AP.DB.Query(string.format(
             "SELECT a.item_entry FROM ap_item_attune a "..
             "JOIN ap_item_snapshot s ON s.guid=%d AND s.item_entry=a.item_entry "..
             "LEFT JOIN ap_dissolved_items d ON d.account_id=%d AND d.item_entry=a.item_entry "..
@@ -926,7 +961,17 @@ forgeTests[#forgeTests+1] = function()
     return run("FORGE: Dissolve rejects missing/mismatched pending state", function()
         local player = ForgePlayer()
         AP.Forge.Pending[AP_TEST_GUID] = nil
-        AP.Forge.Dissolve(player, player, 99999)
+        -- This is a mock-only unit test and must also be deterministic when
+        -- launched from the worldserver console before any player-login probe
+        -- has populated the real SendBroadcastMessage capability.
+        local originalCapCheck = AP.Cap.Check
+        AP.Cap.Check = function(name)
+            if name == "SendBroadcastMessage" then return true end
+            return originalCapCheck(name)
+        end
+        local callOk, callErr = pcall(AP.Forge.Dissolve, player, player, 99999)
+        AP.Cap.Check = originalCapCheck
+        if not callOk then error(callErr) end
         local found = false
         for _, m in ipairs(player._msgs) do
             if m:find("[Worldsoul]", 1, true) then found = true; break end
@@ -939,10 +984,10 @@ forgeTests[#forgeTests+1] = function()
     return run("FORGE: Dissolve rejects already-dissolved entry (double-dissolution guard)", function()
         cleanForgeData()
         local entry = 77004
-        CharDBQuery(string.format(
+        AP.DB.ExecuteCritical(string.format(
             "INSERT INTO `ap_item_attune` (`guid`,`item_entry`,`progress`,`attuned`) "..
             "VALUES (%d,%d,10000,1);", AP_TEST_GUID, entry))
-        CharDBQuery(string.format(
+        AP.DB.ExecuteCritical(string.format(
             "INSERT INTO `ap_dissolved_items` (`account_id`,`item_entry`) VALUES (%d,%d);",
             AP_TEST_GUID, entry))
         local player = ForgePlayer()
@@ -950,6 +995,696 @@ forgeTests[#forgeTests+1] = function()
         AP.Forge.Dissolve(player, player, entry)
         assertTrue(AP.Forge.Pending[AP_TEST_GUID] == nil, "pending cleared after rejection")
         cleanForgeData()
+    end)
+end
+
+-- ============================================================
+-- SECTION 8b: DISSOLUTION TRANSACTION-SAFETY TESTS (E2j5h Stage 4)
+-- Covers ap_dissolution_pending: the durable two-phase pending record
+-- and its login-time recovery pass (AP.Forge.ReconcilePendingDissolutions).
+-- These are the required regression cases from the E2j5h Stage 4 brief;
+-- see e2j5h-DISSOLUTION-TESTS.md for the full case-by-case mapping.
+-- ============================================================
+
+-- A minimal item mock: only GetEntry/GetGUIDLow are exercised by the
+-- dissolution code path (equipped-slot comparison and itemInstanceGuid
+-- capture respectively).
+local function MockItem(entry, instanceGuid)
+    return setmetatable({}, {__index = {
+        GetEntry   = function(self) return entry end,
+        GetGUIDLow = function(self) return instanceGuid or 0 end,
+    }})
+end
+
+-- A fuller player mock than ForgePlayer() above: adds RemoveItem/AddItem/
+-- SaveToDB/GetCoinage/SetCoinage so the full Dissolve()/DissolveDirect()
+-- mutation sequence can actually run end-to-end against test DB rows,
+-- instead of only exercising the pre-mutation guard clauses.
+--   opts.equippedSlot -- if set, GetEquippedItemBySlot(equippedSlot) returns itemObj
+--   opts.itemMissing   -- if true, GetItemByEntry always returns nil
+--   opts.removeFails    -- if true, RemoveItem reports failure
+--   opts.addFails       -- if true, AddItem reports physical-sync failure
+local function FullForgePlayer(itemObj, opts)
+    opts = opts or {}
+    local msgs = {}
+    local coinage = 0
+    local removedCalls = {}
+    return setmetatable({_msgs = msgs, _removedCalls = removedCalls}, {__index = {
+        GetGUIDLow            = function() return AP_TEST_GUID end,
+        GetAccountId          = function() return AP_TEST_GUID end,
+        SendBroadcastMessage  = function(self, m) msgs[#msgs+1] = m end,
+        GossipClearMenu       = function(self) end,
+        GossipMenuAddItem     = function(self, ...) end,
+        GossipSendMenu        = function(self, ...) end,
+        GetEquippedItemBySlot = function(self, slot)
+            if opts.equippedSlot ~= nil and slot == opts.equippedSlot then return itemObj end
+            return nil
+        end,
+        GetItemByEntry = function(self, entry)
+            if opts.itemMissing then return nil end
+            return itemObj
+        end,
+        RemoveItem = function(self, entry, count)
+            removedCalls[#removedCalls+1] = { entry, count }
+            return not opts.removeFails
+        end,
+        AddItem   = function(self, entry, count) return not opts.addFails end,
+        SaveToDB  = function(self, a, b) return true end,
+        GetCoinage = function(self) return coinage end,
+        SetCoinage = function(self, v) coinage = v end,
+    }})
+end
+
+forgeTests[#forgeTests+1] = function()
+    return run("FORGE-TXN: RemoveItem wrapper propagates explicit false", function()
+        local player = { RemoveItem = function() return false end }
+        assertFalse(AP.RT.RemoveItem(player, 78000, 1), "explicit false is failure")
+    end)
+end
+
+forgeTests[#forgeTests+1] = function()
+    return run("FORGE-TXN: RemoveItem wrapper accepts successful void return", function()
+        local player = { RemoveItem = function() return nil end }
+        assertTrue(AP.RT.RemoveItem(player, 78000, 1), "void return is compatible success")
+    end)
+end
+
+forgeTests[#forgeTests+1] = function()
+    return run("FORGE-TXN: RemoveItem wrapper accepts explicit true", function()
+        local player = { RemoveItem = function() return true end }
+        assertTrue(AP.RT.RemoveItem(player, 78000, 1), "explicit true is success")
+    end)
+end
+
+forgeTests[#forgeTests+1] = function()
+    return run("FORGE-TXN: RemoveItem wrapper converts thrown error to false", function()
+        local player = { RemoveItem = function() error("injected remove failure") end }
+        assertFalse(AP.RT.RemoveItem(player, 78000, 1), "thrown call is failure")
+    end)
+end
+
+forgeTests[#forgeTests+1] = function()
+    return run("FORGE-TXN: [case 1] Full successful dissolution end-to-end (pending row, ledger row, rewards granted)", function()
+        cleanForgeData()
+        local entry   = 78001
+        local quality = 3  -- Rare
+        AP.DB.ExecuteCritical(string.format(
+            "INSERT INTO `ap_item_attune` (`guid`,`item_entry`,`progress`,`attuned`) VALUES (%d,%d,10000,1);",
+            AP_TEST_GUID, entry))
+
+        local itemObj = MockItem(entry, 555001)
+        local player  = FullForgePlayer(itemObj)
+        AP.Forge.Pending[AP_TEST_GUID] = { itemEntry = entry, quality = quality, name = "TestRareItem" }
+
+        AP.Forge.Dissolve(player, player, entry)
+
+        assertEqual(#player._removedCalls, 1, "RemoveItem invoked exactly once")
+
+        local ledgerRow = AP.DB.Query(string.format(
+            "SELECT 1 FROM `ap_dissolved_items` WHERE `account_id` = %d AND `item_entry` = %d",
+            AP_TEST_GUID, entry))
+        assertTrue(ledgerRow ~= nil, "ap_dissolved_items row written (audit + dup-guard)")
+
+        local pendingRow = AP.DB.Query(string.format(
+            "SELECT `status` FROM `ap_dissolution_pending` WHERE `guid` = %d AND `item_entry` = %d",
+            AP_TEST_GUID, entry))
+        assertTrue(pendingRow ~= nil, "pending row retained as audit record [case 14]")
+        assertEqual(pendingRow:GetString(0), "COMPLETE", "pending row reached COMPLETE [case 13: no silent loss]")
+
+        local rec = AP.LoadMastery(AP_TEST_GUID)
+        assertEqual(rec.aether, AP.Forge.Rewards[quality].essence, "essence matches reward table [case 11]")
+        assertEqual(AP.Forge.GetResidue(AP_TEST_GUID), AP.Forge.Rewards[quality].residue, "residue matches reward table [case 11]")
+        assertEqual(player:GetCoinage(), AP.Forge.Rewards[quality].gold, "gold matches reward table [case 11]")
+
+        AP.Forge.Pending[AP_TEST_GUID] = nil
+        cleanForgeData()
+    end)
+end
+
+forgeTests[#forgeTests+1] = function()
+    return run("FORGE-TXN: [case 2] DissolveDirect rejects an ineligible (not-attuned) item with zero mutation", function()
+        cleanForgeData()
+        local entry  = 78002
+        local player = FullForgePlayer(MockItem(entry, 555002))
+        local result = AP.Forge.DissolveDirect(player, entry)
+        assertFalse(result.success, "rejected")
+        assertEqual(result.reasonCode, "not_attuned", "reasonCode")
+        assertEqual(#player._removedCalls, 0, "item never removed")
+        local pendingRow = AP.DB.Query(string.format(
+            "SELECT 1 FROM `ap_dissolution_pending` WHERE `guid` = %d AND `item_entry` = %d",
+            AP_TEST_GUID, entry))
+        assertTrue(pendingRow == nil, "no pending row created")
+        cleanForgeData()
+    end)
+end
+
+forgeTests[#forgeTests+1] = function()
+    return run("FORGE-TXN: [case 3] DissolveDirect rejects an equipped item with zero mutation", function()
+        cleanForgeData()
+        local entry = 78003
+        AP.DB.ExecuteCritical(string.format(
+            "INSERT INTO `ap_item_attune` (`guid`,`item_entry`,`progress`,`attuned`) VALUES (%d,%d,10000,1);",
+            AP_TEST_GUID, entry))
+        local itemObj = MockItem(entry, 555003)
+        local player  = FullForgePlayer(itemObj, { equippedSlot = 0 })
+        -- The mock supplies GetEquippedItemBySlot directly. Permit only that
+        -- mocked capability so the console runner does not depend on a prior
+        -- player-login probe, then restore the live checker immediately.
+        local originalCapCheck = AP.Cap.Check
+        AP.Cap.Check = function(name)
+            if name == "GetEquippedItemBySlot" then return true end
+            return originalCapCheck(name)
+        end
+        local callOk, result = pcall(AP.Forge.DissolveDirect, player, entry)
+        AP.Cap.Check = originalCapCheck
+        if not callOk then error(result) end
+        assertFalse(result.success, "rejected")
+        assertEqual(result.reasonCode, "item_equipped", "reasonCode")
+        assertEqual(#player._removedCalls, 0, "item never removed")
+        cleanForgeData()
+    end)
+end
+
+forgeTests[#forgeTests+1] = function()
+    return run("FORGE-TXN: [case 4] DissolveDirect rejects a missing/moved item with zero mutation", function()
+        cleanForgeData()
+        local entry = 78004
+        AP.DB.ExecuteCritical(string.format(
+            "INSERT INTO `ap_item_attune` (`guid`,`item_entry`,`progress`,`attuned`) VALUES (%d,%d,10000,1);",
+            AP_TEST_GUID, entry))
+        local player = FullForgePlayer(MockItem(entry, 555004), { itemMissing = true })
+        local result  = AP.Forge.DissolveDirect(player, entry)
+        assertFalse(result.success, "rejected")
+        assertEqual(result.reasonCode, "item_not_possessed", "reasonCode")
+        local pendingRow = AP.DB.Query(string.format(
+            "SELECT 1 FROM `ap_dissolution_pending` WHERE `guid` = %d AND `item_entry` = %d",
+            AP_TEST_GUID, entry))
+        assertTrue(pendingRow == nil, "no pending row created")
+        cleanForgeData()
+    end)
+end
+
+forgeTests[#forgeTests+1] = function()
+    return run("FORGE-TXN: [cases 5/6] CreatePendingRecord rejects a second reservation while one is in flight (repeated confirmation / rapid duplicate)", function()
+        cleanForgeData()
+        local entry   = 78005
+        local rewards = AP.Forge.Rewards[2]
+        local ok1 = AP.Forge.CreatePendingRecord(AP_TEST_GUID, AP_TEST_GUID, entry, 999, 2, rewards)
+        assertTrue(ok1, "first reservation succeeds")
+        local ok2, reason2 = AP.Forge.CreatePendingRecord(AP_TEST_GUID, AP_TEST_GUID, entry, 999, 2, rewards)
+        assertTrue(ok2 == nil, "second (duplicate) reservation rejected, not overwritten")
+        assertEqual(reason2, "already_pending", "reason code")
+        cleanForgeData()
+    end)
+end
+
+forgeTests[#forgeTests+1] = function()
+    return run("FORGE-TXN: [case 7] DissolveDirect's pre-removal guards reject cleanly with zero mutation (already-dissolved)", function()
+        cleanForgeData()
+        local entry = 78006
+        AP.DB.ExecuteCritical(string.format(
+            "INSERT INTO `ap_item_attune` (`guid`,`item_entry`,`progress`,`attuned`) VALUES (%d,%d,10000,1);",
+            AP_TEST_GUID, entry))
+        AP.DB.ExecuteCritical(string.format(
+            "INSERT INTO `ap_dissolved_items` (`account_id`,`item_entry`) VALUES (%d,%d);",
+            AP_TEST_GUID, entry))
+        local player = FullForgePlayer(MockItem(entry, 555006))
+        local result  = AP.Forge.DissolveDirect(player, entry)
+        assertFalse(result.success, "rejected")
+        assertEqual(result.reasonCode, "already_dissolved", "reasonCode")
+        assertEqual(#player._removedCalls, 0, "item never removed - guard runs before any pending row is created")
+        local pendingRow = AP.DB.Query(string.format(
+            "SELECT 1 FROM `ap_dissolution_pending` WHERE `guid` = %d AND `item_entry` = %d",
+            AP_TEST_GUID, entry))
+        assertTrue(pendingRow == nil, "no pending row created")
+        cleanForgeData()
+    end)
+end
+
+forgeTests[#forgeTests+1] = function()
+    return run("FORGE-TXN: DissolveDirect discards the pending reservation when item removal itself fails", function()
+        cleanForgeData()
+        local entry = 78007
+        AP.DB.ExecuteCritical(string.format(
+            "INSERT INTO `ap_item_attune` (`guid`,`item_entry`,`progress`,`attuned`) VALUES (%d,%d,10000,1);",
+            AP_TEST_GUID, entry))
+        local player = FullForgePlayer(MockItem(entry, 555007), { removeFails = true })
+        local result  = AP.Forge.DissolveDirect(player, entry)
+        assertFalse(result.success, "rejected")
+        assertEqual(result.reasonCode, "removal_failed", "reasonCode")
+        local pendingRow = AP.DB.Query(string.format(
+            "SELECT 1 FROM `ap_dissolution_pending` WHERE `guid` = %d AND `item_entry` = %d",
+            AP_TEST_GUID, entry))
+        assertTrue(pendingRow == nil, "reservation discarded, not left dangling")
+        cleanForgeData()
+    end)
+end
+
+forgeTests[#forgeTests+1] = function()
+    return run("FORGE-TXN: [case 8, Window A] Recovery pass completes a status=REMOVED orphan exactly once", function()
+        cleanForgeData()
+        local entry   = 78008
+        local rewards = AP.Forge.Rewards[3]
+        AP.DB.ExecuteCritical(string.format(
+            "INSERT INTO `ap_dissolution_pending` "..
+            "(`guid`,`account_id`,`item_entry`,`item_instance_guid`,`quality`,"..
+            "`essence_reward`,`gold_reward`,`residue_reward`,`status`) "..
+            "VALUES (%d,%d,%d,777,3,%d,%d,%d,'REMOVED');",
+            AP_TEST_GUID, AP_TEST_GUID, entry, rewards.essence, rewards.gold, rewards.residue))
+
+        local player = FullForgePlayer(MockItem(entry, 777))
+        AP.Forge.ReconcilePendingDissolutions(player)
+
+        local ledgerRow = AP.DB.Query(string.format(
+            "SELECT 1 FROM `ap_dissolved_items` WHERE `account_id` = %d AND `item_entry` = %d",
+            AP_TEST_GUID, entry))
+        assertTrue(ledgerRow ~= nil, "ap_dissolved_items row backfilled by recovery [case 9: no double-award guard]")
+
+        local rec = AP.LoadMastery(AP_TEST_GUID)
+        assertEqual(rec.aether, rewards.essence, "essence granted exactly once [case 12: no duplicate award]")
+
+        local pendingRow = AP.DB.Query(string.format(
+            "SELECT `status` FROM `ap_dissolution_pending` WHERE `guid` = %d AND `item_entry` = %d",
+            AP_TEST_GUID, entry))
+        assertEqual(pendingRow:GetString(0), "COMPLETE", "pending row marked COMPLETE")
+
+        -- Simulate a second crash/login cycle: run recovery again. The row
+        -- is now COMPLETE and excluded by the WHERE clause, so this must
+        -- NOT double-grant [case 12, case 10: reconnect during pending].
+        AP.Forge.ReconcilePendingDissolutions(player)
+        local rec2 = AP.LoadMastery(AP_TEST_GUID)
+        assertEqual(rec2.aether, rewards.essence, "no double-grant on repeated recovery pass")
+
+        cleanForgeData()
+    end)
+end
+
+forgeTests[#forgeTests+1] = function()
+    return run("FORGE-TXN: [case 9, Window B] Recovery pass completes a status=RECORDED orphan without duplicating the ledger row", function()
+        cleanForgeData()
+        local entry   = 78009
+        local rewards = AP.Forge.Rewards[4]
+        AP.DB.ExecuteCritical(string.format(
+            "INSERT INTO `ap_dissolved_items` (`account_id`,`item_entry`) VALUES (%d,%d);",
+            AP_TEST_GUID, entry))
+        AP.DB.ExecuteCritical(string.format(
+            "INSERT INTO `ap_dissolution_pending` "..
+            "(`guid`,`account_id`,`item_entry`,`item_instance_guid`,`quality`,"..
+            "`essence_reward`,`gold_reward`,`residue_reward`,`status`) "..
+            "VALUES (%d,%d,%d,778,4,%d,%d,%d,'RECORDED');",
+            AP_TEST_GUID, AP_TEST_GUID, entry, rewards.essence, rewards.gold, rewards.residue))
+
+        local player = FullForgePlayer(MockItem(entry, 778))
+        AP.Forge.ReconcilePendingDissolutions(player)
+
+        local countRow = AP.DB.Query(string.format(
+            "SELECT COUNT(*) FROM `ap_dissolved_items` WHERE `account_id` = %d AND `item_entry` = %d",
+            AP_TEST_GUID, entry))
+        local count = countRow and (tonumber(countRow:GetUInt32(0)) or 0) or 0
+        assertEqual(count, 1, "exactly one ap_dissolved_items row - INSERT IGNORE did not duplicate")
+
+        local rec = AP.LoadMastery(AP_TEST_GUID)
+        assertEqual(rec.aether, rewards.essence, "essence granted exactly once for the Window-B orphan")
+
+        cleanForgeData()
+    end)
+end
+
+forgeTests[#forgeTests+1] = function()
+    return run("FORGE-TXN: mastery-row failure leaves operation recoverable with zero reward", function()
+        cleanForgeData()
+        local entry = 78020
+        local rewards = insertForgePending(entry, 3, "REMOVED")
+        local player = FullForgePlayer(MockItem(entry, 900020))
+
+        withCriticalFailure("AP.Forge.EnsureMasteryRewardRow", function()
+            local ok, reason = AP.Forge.GrantDissolutionRewards(
+                player, AP_TEST_GUID, AP_TEST_GUID, entry, rewards)
+            assertFalse(ok, "critical failure reported")
+            assertEqual(reason, "mastery_row_failed", "failure reason")
+        end)
+
+        assertEqual(forgePendingStatus(entry), "REMOVED", "state remains recoverable")
+        assertEqual(AP.LoadMastery(AP_TEST_GUID).aether, 0, "Essence not credited")
+        assertEqual(AP.Forge.GetResidue(AP_TEST_GUID), 0, "Residue not credited")
+        cleanForgeData()
+    end)
+end
+
+forgeTests[#forgeTests+1] = function()
+    return run("FORGE-TXN: residue-row failure after mastery preparation grants neither reward", function()
+        cleanForgeData()
+        local entry = 78021
+        local rewards = insertForgePending(entry, 3, "REMOVED")
+        local player = FullForgePlayer(MockItem(entry, 900021))
+
+        withCriticalFailure("AP.Forge.EnsureResidueRewardRow", function()
+            local ok, reason = AP.Forge.GrantDissolutionRewards(
+                player, AP_TEST_GUID, AP_TEST_GUID, entry, rewards)
+            assertFalse(ok, "critical failure reported")
+            assertEqual(reason, "residue_row_failed", "failure reason")
+        end)
+
+        assertEqual(forgePendingStatus(entry), "REMOVED", "state remains recoverable")
+        assertEqual(AP.LoadMastery(AP_TEST_GUID).aether, 0, "prepared row has zero Essence")
+        assertEqual(AP.Forge.GetResidue(AP_TEST_GUID), 0, "Residue not credited")
+        cleanForgeData()
+    end)
+end
+
+forgeTests[#forgeTests+1] = function()
+    return run("FORGE-TXN: atomic reward failure cannot partially credit Essence or Residue", function()
+        cleanForgeData()
+        local entry = 78022
+        local rewards = insertForgePending(entry, 3, "REMOVED")
+        local player = FullForgePlayer(MockItem(entry, 900022))
+
+        withCriticalFailure("AP.Forge.CommitDissolutionRewards", function()
+            local ok, reason = AP.Forge.GrantDissolutionRewards(
+                player, AP_TEST_GUID, AP_TEST_GUID, entry, rewards)
+            assertFalse(ok, "atomic critical failure reported")
+            assertEqual(reason, "reward_write_failed", "failure reason")
+        end)
+
+        assertEqual(forgePendingStatus(entry), "REMOVED", "state remains recoverable")
+        assertEqual(AP.LoadMastery(AP_TEST_GUID).aether, 0, "Essence remains zero")
+        assertEqual(AP.Forge.GetResidue(AP_TEST_GUID), 0, "Residue remains zero")
+        assertEqual(player:GetCoinage(), 0, "gold cache remains zero")
+
+        local retried, retryReason = AP.Forge.GrantDissolutionRewards(
+            player, AP_TEST_GUID, AP_TEST_GUID, entry, rewards)
+        assertTrue(retried, "retry succeeds")
+        assertEqual(retryReason, "complete", "retry completion reason")
+        assertEqual(forgePendingStatus(entry), "COMPLETE", "retry reaches COMPLETE")
+        assertEqual(AP.LoadMastery(AP_TEST_GUID).aether, rewards.essence, "Essence credited once")
+        assertEqual(AP.Forge.GetResidue(AP_TEST_GUID), rewards.residue, "Residue credited once")
+
+        local duplicate, duplicateReason = AP.Forge.GrantDissolutionRewards(
+            player, AP_TEST_GUID, AP_TEST_GUID, entry, rewards)
+        assertTrue(duplicate, "duplicate completion is an idempotent success")
+        assertEqual(duplicateReason, "already_complete", "duplicate is recognized")
+        assertEqual(AP.LoadMastery(AP_TEST_GUID).aether, rewards.essence, "no duplicate Essence")
+        assertEqual(AP.Forge.GetResidue(AP_TEST_GUID), rewards.residue, "no duplicate Residue")
+        cleanForgeData()
+    end)
+end
+
+forgeTests[#forgeTests+1] = function()
+    return run("FORGE-TXN: physical Residue sync failure preserves ledger credit without replay", function()
+        cleanForgeData()
+        local entry = 78023
+        local rewards = insertForgePending(entry, 3, "REMOVED")
+        local player = FullForgePlayer(MockItem(entry, 900023), { addFails = true })
+
+        local ok, reason, parity = AP.Forge.GrantDissolutionRewards(
+            player, AP_TEST_GUID, AP_TEST_GUID, entry, rewards)
+        assertTrue(ok, "durable reward succeeds")
+        assertEqual(reason, "complete", "durable completion reason")
+        assertFalse(parity.residueSynced, "physical sync failure is visible")
+        assertEqual(forgePendingStatus(entry), "COMPLETE", "durable operation remains COMPLETE")
+        assertEqual(AP.Forge.GetResidue(AP_TEST_GUID), rewards.residue, "ledger remains credited")
+
+        local second = AP.Forge.GrantDissolutionRewards(
+            player, AP_TEST_GUID, AP_TEST_GUID, entry, rewards)
+        assertTrue(second, "second call recognizes completed operation")
+        assertEqual(AP.Forge.GetResidue(AP_TEST_GUID), rewards.residue, "no duplicate ledger credit")
+        cleanForgeData()
+    end)
+end
+
+forgeTests[#forgeTests+1] = function()
+    return run("FORGE-TXN: [case 10] Recovery pass discards a status=PENDING_REMOVAL orphan and grants no reward (item was never touched)", function()
+        cleanForgeData()
+        local entry = 78010
+        AP.DB.ExecuteCritical(string.format(
+            "INSERT INTO `ap_dissolution_pending` "..
+            "(`guid`,`account_id`,`item_entry`,`item_instance_guid`,`quality`,"..
+            "`essence_reward`,`gold_reward`,`residue_reward`,`status`) "..
+            "VALUES (%d,%d,%d,779,1,150,5000,1,'PENDING_REMOVAL');",
+            AP_TEST_GUID, AP_TEST_GUID, entry))
+
+        local player = FullForgePlayer(MockItem(entry, 779))
+        AP.Forge.ReconcilePendingDissolutions(player)
+
+        local pendingRow = AP.DB.Query(string.format(
+            "SELECT 1 FROM `ap_dissolution_pending` WHERE `guid` = %d AND `item_entry` = %d",
+            AP_TEST_GUID, entry))
+        assertTrue(pendingRow == nil, "stale PENDING_REMOVAL row discarded")
+
+        local ledgerRow = AP.DB.Query(string.format(
+            "SELECT 1 FROM `ap_dissolved_items` WHERE `account_id` = %d AND `item_entry` = %d",
+            AP_TEST_GUID, entry))
+        assertTrue(ledgerRow == nil, "no ledger row written - item was never touched")
+
+        local rec = AP.LoadMastery(AP_TEST_GUID)
+        assertEqual(rec.aether, 0, "no reward granted for a reservation that never removed the item")
+
+        cleanForgeData()
+    end)
+end
+
+forgeTests[#forgeTests+1] = function()
+    return run("FORGE-TXN: [case 15] No bot-triggering path exists - DissolveDirect requires an explicit caller-supplied itemEntry, never self-invokes", function()
+        -- This is a structural sanity check, not a behavioral change: this
+        -- restoration only made the existing Dissolve()/DissolveDirect()
+        -- mutation recoverable. It did not add any code path that calls
+        -- DissolveDirect on its own. Live bot-autonomous execution is gated
+        -- entirely outside Lua by Dissolution.Execute.Enable (checked in
+        -- EchoesDissolutionAdapter.cpp before the bridge ever calls into
+        -- this file) and is unchanged by this task.
+        assertTrue(type(AP.Forge.DissolveDirect) == "function", "DissolveDirect exists")
+        assertTrue(AP.Forge.Pending ~= nil, "gossip Pending table untouched by this restoration")
+    end)
+end
+
+forgeTests[#forgeTests+1] = function()
+    return run("FORGE-TXN: [case 16] OnForgeDissolve hook payload carries the real itemEntry, not a nil pending.entry", function()
+        -- Regression test for a bug where the gossip Dissolve() path dispatched
+        -- OnForgeDissolve with itemEntry=pending.entry -- a field AP.Forge.Pending
+        -- rows never set (they only ever set .itemEntry) -- so every consumer of
+        -- this documented public hook silently received itemEntry=nil.
+        cleanForgeData()
+        local entry   = 78016
+        local quality = 2
+        AP.DB.ExecuteCritical(string.format(
+            "INSERT INTO `ap_item_attune` (`guid`,`item_entry`,`progress`,`attuned`) VALUES (%d,%d,10000,1);",
+            AP_TEST_GUID, entry))
+
+        local itemObj = MockItem(entry, 555016)
+        local player  = FullForgePlayer(itemObj)
+        AP.Forge.Pending[AP_TEST_GUID] = { itemEntry = entry, quality = quality, name = "TestUncommonItem" }
+
+        local captured = nil
+        AP.API.RegisterHook("OnForgeDissolve", "test_hook_case16", function(payload)
+            captured = payload
+        end)
+
+        AP.Forge.Dissolve(player, player, entry)
+
+        AP.Hooks["OnForgeDissolve"]["test_hook_case16"] = nil
+
+        assertTrue(captured ~= nil, "OnForgeDissolve hook fired")
+        assertEqual(captured.itemEntry, entry, "hook payload itemEntry is the real dissolved item, not nil")
+        assertEqual(captured.guid, AP_TEST_GUID, "hook payload guid is correct")
+
+        cleanForgeData()
+    end)
+end
+
+-- ============================================================
+-- SECTION 8B: E2j10 RESIDUE SPENDING TESTS (#aptest residue)
+-- ============================================================
+local residueTests = {}
+
+local function cleanResidueSpendData(extraGuid)
+    AP.DB.ExecuteCritical(string.format(
+        "DELETE FROM `ap_mastery` WHERE `guid` IN (%d,%d)",
+        AP_TEST_GUID, extraGuid or AP_TEST_GUID))
+    AP.DB.ExecuteCritical(string.format(
+        "DELETE FROM `ap_residue` WHERE `account_id` = %d", AP_TEST_GUID))
+end
+
+local function seedResidueSpend(guid, rackSlots, aether, residue)
+    AP.DB.ExecuteCritical(string.format(
+        "INSERT INTO `ap_mastery` (`guid`,`aether`,`mastery`,`rack_slots`) "..
+        "VALUES (%d,%d,0,%d)", guid, aether, rackSlots), "APTEST.E2j10SeedMastery")
+    AP.DB.ExecuteCritical(string.format(
+        "INSERT INTO `ap_residue` (`account_id`,`amount`) VALUES (%d,%d) "..
+        "ON DUPLICATE KEY UPDATE `amount`=%d",
+        AP_TEST_GUID, residue, residue), "APTEST.E2j10SeedResidue")
+end
+
+local function ResiduePlayer(guid, physical, opts)
+    opts = opts or {}
+    return setmetatable({
+        _guid = guid,
+        _physical = physical or 0,
+        _opts = opts,
+        _msgs = {},
+    }, { __index = {
+        GetGUIDLow = function(self) return self._guid end,
+        GetAccountId = function() return AP_TEST_GUID end,
+        GetItemCount = function(self) return self._physical end,
+        RemoveItem = function(self, entry, count)
+            if self._opts.removeFails or entry ~= 900011 or self._physical < count then return false end
+            self._physical = self._physical - count
+            return true
+        end,
+        AddItem = function(self, entry, count)
+            if self._opts.addFails or entry ~= 900011 then return false end
+            self._physical = self._physical + count
+            return true
+        end,
+        SaveToDB = function(self) return not self._opts.saveFails end,
+        SendBroadcastMessage = function(self, msg) self._msgs[#self._msgs+1] = msg end,
+    }})
+end
+
+residueTests[#residueTests+1] = function()
+    return run("E2J10: canonical costs and capacities are unchanged", function()
+        assertEqual(AP.Forge.ResidueCosts.crucible_catalyst, 10, "Catalyst cost")
+        assertEqual(AP.Rack.ExpandTiers[4][1], 13, "Rack tier 4 target")
+        assertEqual(AP.Rack.ExpandTiers[4][3], 15, "Rack tier 4 cost")
+        assertEqual(AP.Rack.ExpandTiers[5][3], 40, "Rack tier 5 cost")
+        assertEqual(AP.Rack.ExpandTiers[6][3], 100, "Rack tier 6 cost")
+        assertEqual(AP.Rack.MAX_SLOTS, 20, "Rack maximum")
+    end)
+end
+
+residueTests[#residueTests+1] = function()
+    return run("E2J10: Catalyst balance boundary preview", function()
+        cleanResidueSpendData()
+        local player = ResiduePlayer(AP_TEST_GUID, 0)
+        for _, amount in ipairs({0, 9, 10, 11, 1000000}) do
+            cleanResidueSpendData()
+            seedResidueSpend(AP_TEST_GUID, 10, 100, amount)
+            local preview = AP.Forge.PreviewCatalyst(player)
+            assertTrue(preview.ok, "preview available at " .. amount)
+            assertEqual(preview.expectedResidue, amount, "exact balance " .. amount)
+            assertEqual(preview.status, amount >= 10 and "READY" or "INSUFFICIENT_RESIDUE",
+                "boundary status " .. amount)
+        end
+        cleanResidueSpendData()
+    end)
+end
+
+residueTests[#residueTests+1] = function()
+    return run("E2J10: Catalyst exact-cost mutation is atomic and idempotent", function()
+        cleanResidueSpendData()
+        seedResidueSpend(AP_TEST_GUID, 10, 100, 10)
+        local player = ResiduePlayer(AP_TEST_GUID, 10)
+        local preview = AP.Forge.PreviewCatalyst(player)
+        local first = AP.Forge.PurchaseCatalyst(player, preview.expectedResidue, preview.expectedEssence)
+        assertTrue(first.ok, "first conversion succeeds")
+        assertEqual(AP.Forge.GetResidue(AP_TEST_GUID), 0, "exact debit")
+        assertEqual(AP.LoadMastery(AP_TEST_GUID).aether, 5100, "exact reward")
+        assertEqual(player._physical, 0, "physical parity")
+        local retry = AP.Forge.PurchaseCatalyst(player, preview.expectedResidue, preview.expectedEssence)
+        assertTrue(retry.ok, "identical retry is idempotent completion")
+        assertEqual(AP.Forge.GetResidue(AP_TEST_GUID), 0, "no second debit")
+        assertEqual(AP.LoadMastery(AP_TEST_GUID).aether, 5100, "no second reward")
+        cleanResidueSpendData()
+    end)
+end
+
+residueTests[#residueTests+1] = function()
+    return run("E2J10: Catalyst critical-write failure grants nothing and debits nothing", function()
+        cleanResidueSpendData()
+        seedResidueSpend(AP_TEST_GUID, 10, 100, 10)
+        local player = ResiduePlayer(AP_TEST_GUID, 10)
+        withCriticalFailure("AP.Forge.PurchaseCatalyst", function()
+            local result = AP.Forge.PurchaseCatalyst(player, 10, 100)
+            assertEqual(result.status, "DATABASE_FAILURE", "failure surfaced")
+        end)
+        assertEqual(AP.Forge.GetResidue(AP_TEST_GUID), 10, "ledger unchanged")
+        assertEqual(AP.LoadMastery(AP_TEST_GUID).aether, 100, "Essence unchanged")
+        cleanResidueSpendData()
+    end)
+end
+
+residueTests[#residueTests+1] = function()
+    return run("E2J10: physical sync failure preserves committed Catalyst ledger", function()
+        cleanResidueSpendData()
+        seedResidueSpend(AP_TEST_GUID, 10, 100, 10)
+        local player = ResiduePlayer(AP_TEST_GUID, 10, {removeFails = true})
+        local result = AP.Forge.PurchaseCatalyst(player, 10, 100)
+        assertTrue(result.ok, "durable purchase succeeds")
+        assertFalse(result.physicalSynced, "representation failure visible")
+        assertEqual(AP.Forge.GetResidue(AP_TEST_GUID), 0, "ledger remains authoritative")
+        assertEqual(AP.LoadMastery(AP_TEST_GUID).aether, 5100, "reward remains committed")
+        player._opts.removeFails = false
+        local synced = AP.Forge.SyncResiduePhysicalToLedger(player, 0)
+        assertTrue(synced, "deferred sync succeeds")
+        assertEqual(player._physical, 0, "deferred parity exact")
+        cleanResidueSpendData()
+    end)
+end
+
+residueTests[#residueTests+1] = function()
+    return run("E2J10: Residue Rack tier commits once and persists", function()
+        cleanResidueSpendData()
+        seedResidueSpend(AP_TEST_GUID, 10, 0, 15)
+        local player = ResiduePlayer(AP_TEST_GUID, 15)
+        local preview = AP.Rack.PreviewExpand(player)
+        assertEqual(preview.nextSlots, 13, "canonical next tier")
+        local first = AP.Rack.PurchaseExpand(player, 10, 13, 15)
+        assertTrue(first.ok, "first tier purchase")
+        assertEqual(AP.Rack.GetCapacity(AP_TEST_GUID), 13, "capacity persisted")
+        assertEqual(AP.Forge.GetResidue(AP_TEST_GUID), 0, "exact debit")
+        local retry = AP.Rack.PurchaseExpand(player, 10, 13, 15)
+        assertTrue(retry.ok, "identical retry idempotent")
+        assertEqual(AP.Rack.GetCapacity(AP_TEST_GUID), 13, "does not buy tier 5")
+        assertEqual(AP.Forge.GetResidue(AP_TEST_GUID), 0, "no second debit")
+        cleanResidueSpendData()
+    end)
+end
+
+residueTests[#residueTests+1] = function()
+    return run("E2J10: Rack insufficient and maximum states never mutate", function()
+        cleanResidueSpendData()
+        seedResidueSpend(AP_TEST_GUID, 13, 0, 39)
+        local player = ResiduePlayer(AP_TEST_GUID, 39)
+        local insufficient = AP.Rack.PurchaseExpand(player, 13, 16, 39)
+        assertFalse(insufficient.ok, "below cost rejected")
+        assertEqual(AP.Rack.GetCapacity(AP_TEST_GUID), 13, "capacity unchanged")
+        assertEqual(AP.Forge.GetResidue(AP_TEST_GUID), 39, "ledger unchanged")
+        AP.DB.ExecuteCritical(string.format(
+            "UPDATE `ap_mastery` SET `rack_slots`=20 WHERE `guid`=%d", AP_TEST_GUID))
+        local maximum = AP.Rack.PreviewExpand(player)
+        assertTrue(maximum.ok and maximum.atMaxCapacity, "maximum recognized")
+        cleanResidueSpendData()
+    end)
+end
+
+residueTests[#residueTests+1] = function()
+    return run("E2J10: same-account competing Rack spends allow exactly one", function()
+        local otherGuid = AP_TEST_GUID - 1
+        cleanResidueSpendData(otherGuid)
+        seedResidueSpend(AP_TEST_GUID, 10, 0, 15)
+        AP.DB.ExecuteCritical(string.format(
+            "INSERT INTO `ap_mastery` (`guid`,`aether`,`mastery`,`rack_slots`) VALUES (%d,0,0,10)",
+            otherGuid), "APTEST.E2j10SeedSecondMastery")
+        local firstPlayer = ResiduePlayer(AP_TEST_GUID, 15)
+        local secondPlayer = ResiduePlayer(otherGuid, 15)
+        local oldGetPlayers = AP.RT.GetPlayersInWorld
+        AP.RT.GetPlayersInWorld = function() return {firstPlayer, secondPlayer} end
+        local protectedOk, protectedErr = pcall(function()
+            local first = AP.Rack.PurchaseExpand(firstPlayer, 10, 13, 15)
+            assertEqual(secondPlayer._physical, 0,
+                "first commit converges every online same-account representation")
+            local second = AP.Rack.PurchaseExpand(secondPlayer, 10, 13, 15)
+            assertTrue(first.ok, "first wins")
+            assertFalse(second.ok, "second stale attempt fails")
+            assertEqual(AP.Forge.GetResidue(AP_TEST_GUID), 0, "one exact debit")
+            assertEqual(AP.Rack.GetCapacity(AP_TEST_GUID), 13, "one grant")
+            assertEqual(AP.Rack.GetCapacity(otherGuid), 10, "loser unchanged")
+            assertEqual(firstPlayer._physical, 0, "winner parity")
+            assertEqual(secondPlayer._physical, 0,
+                "all online same-account representations converge on first commit")
+        end)
+        AP.RT.GetPlayersInWorld = oldGetPlayers
+        if not protectedOk then error(protectedErr) end
+        cleanResidueSpendData(otherGuid)
     end)
 end
 
@@ -1073,8 +1808,8 @@ end
 
 visageTests[#visageTests+1] = function()
     return run("VISAGE: flash_enabled and tier_selected persist through DB round-trip", function()
-        CharDBQuery(string.format("DELETE FROM `ap_visage` WHERE `guid`=%d;", AP_TEST_GUID))
-        CharDBQuery(string.format(
+        AP.DB.ExecuteCritical(string.format("DELETE FROM `ap_visage` WHERE `guid`=%d;", AP_TEST_GUID))
+        AP.DB.ExecuteCritical(string.format(
             "INSERT INTO `ap_visage` "..
             "(`guid`,`primary_theme`,`primary_enabled`,"..
             "`secondary_theme`,`secondary_enabled`,`flash_enabled`,`chat_flavor_enabled`,"..
@@ -1088,7 +1823,7 @@ visageTests[#visageTests+1] = function()
         assertEqual(c.flash_enabled, 0, "flash_enabled=0 survived DB round-trip")
         assertEqual(c.primary_tier_selected, 2, "primary_tier_selected=2 survived DB round-trip")
         assertEqual(c.secondary_tier_selected, 3, "secondary_tier_selected=3 survived DB round-trip")
-        CharDBQuery(string.format("DELETE FROM `ap_visage` WHERE `guid`=%d;", AP_TEST_GUID))
+        AP.DB.ExecuteCritical(string.format("DELETE FROM `ap_visage` WHERE `guid`=%d;", AP_TEST_GUID))
         AP.Visage.Cache[AP_TEST_GUID] = nil
     end)
 end
@@ -1173,7 +1908,7 @@ pvpTests[#pvpTests+1] = function()
         -- Use CharDBQuery (SYNC) not CharDBExecute (async): the test must read back
         -- the value immediately, so the write must land before the SELECT.
         local amount = AP.PvP.Values.honorKillBase
-        CharDBQuery(string.format(
+        AP.DB.ExecuteCritical(string.format(
             "INSERT INTO `ap_mastery` (`guid`,`aether`,`mastery`) VALUES (%d,%d,0) "..
             "ON DUPLICATE KEY UPDATE `aether`=`aether`+%d;",
             AP_TEST_GUID, amount, amount))
@@ -1188,7 +1923,7 @@ pvpTests[#pvpTests+1] = function()
         cleanTestGuid()
         -- Use CharDBQuery (SYNC) — same reason as honor kill test above.
         local win = AP.PvP.Values.bgWinBase
-        CharDBQuery(string.format(
+        AP.DB.ExecuteCritical(string.format(
             "INSERT INTO `ap_mastery` (`guid`,`aether`,`mastery`) VALUES (%d,%d,0) "..
             "ON DUPLICATE KEY UPDATE `aether`=`aether`+%d;",
             AP_TEST_GUID, win, win))
@@ -1331,22 +2066,34 @@ versionTests[#versionTests+1] = function()
 end
 
 versionTests[#versionTests+1] = function()
-    return run("VERSION: Mismatch detection logic is correct", function()
-        local server = AP.VERSION
-        assertTrue(not (server and (server ~= server)), "matching version -> no warning")
-        local mismatched = server .. ".extra"
-        assertTrue(server and (mismatched ~= server), "mismatch -> triggers warning condition")
+    return run("VERSION: AP.CLIENT_ADDON_VERSION is a semver string", function()
+        assertTrue(type(AP.CLIENT_ADDON_VERSION) == "string", "client AddOn version is string")
+        local major, minor, patch = AP.CLIENT_ADDON_VERSION:match("^(%d+)%.(%d+)%.(%d+)$")
+        assertNotNil(major, "client AddOn version has major")
+        assertNotNil(minor, "client AddOn version has minor")
+        assertNotNil(patch, "client AddOn version has patch")
     end)
 end
 
 versionTests[#versionTests+1] = function()
-    return run("VERSION: Warning message format includes both client and server", function()
-        local sv, cv = "1.0.0", "0.9.5"
+    return run("VERSION: Client AddOn mismatch detection uses the client version domain", function()
+        local expected = AP.CLIENT_ADDON_VERSION
+        assertFalse(expected ~= expected, "matching AddOn version -> no warning")
+        local mismatched = expected .. ".extra"
+        assertTrue(mismatched ~= expected, "mismatched AddOn version -> warning")
+        assertTrue(AP.VERSION ~= expected,
+            "server package and client AddOn versions may differ without a warning")
+    end)
+end
+
+versionTests[#versionTests+1] = function()
+    return run("VERSION: Warning message format includes reported and expected AddOn versions", function()
+        local expected, reported = "1.1.0", "0.9.5"
         local msg = string.format(
-            "|cffff4444[Worldsoul] ADDON OUT OF DATE|r  (you: |cffffff00v%s|r  server: |cff9966ffv%s|r)",
-            cv, sv)
-        assertTrue(msg:find(cv, 1, true), "client version in warning message")
-        assertTrue(msg:find(sv, 1, true), "server version in warning message")
+            "|cffff4444[Worldsoul] ADDON OUT OF DATE|r  (you: |cffffff00v%s|r  expected: |cff9966ffv%s|r)",
+            reported, expected)
+        assertTrue(msg:find(reported, 1, true), "reported AddOn version in warning message")
+        assertTrue(msg:find(expected, 1, true), "expected AddOn version in warning message")
     end)
 end
 
@@ -1357,7 +2104,7 @@ local exploitTests = {}
 
 exploitTests[#exploitTests+1] = function()
     return run("EXPLOIT: Weapon (class=2, invType>0) passes gear eligibility check", function()
-        local q = WorldDBQuery(
+        local q = AP.DB.WorldQuery(
             "SELECT `class`, `InventoryType` FROM `item_template` "..
             "WHERE `class` = 2 AND `InventoryType` > 0 LIMIT 1;")
         assertNotNil(q, "weapon row exists in item_template")
@@ -1369,7 +2116,7 @@ end
 
 exploitTests[#exploitTests+1] = function()
     return run("EXPLOIT: Armor (class=4, invType>0) passes gear eligibility check", function()
-        local q = WorldDBQuery(
+        local q = AP.DB.WorldQuery(
             "SELECT `class`, `InventoryType` FROM `item_template` "..
             "WHERE `class` = 4 AND `InventoryType` > 0 AND `subclass` > 0 LIMIT 1;")
         assertNotNil(q, "armor row exists in item_template")
@@ -1381,7 +2128,7 @@ end
 
 exploitTests[#exploitTests+1] = function()
     return run("EXPLOIT: Consumable (class=0) rejected by gear eligibility check", function()
-        local q = WorldDBQuery(
+        local q = AP.DB.WorldQuery(
             "SELECT `class`, `InventoryType` FROM `item_template` "..
             "WHERE `class` = 0 LIMIT 1;")
         assertNotNil(q, "consumable row exists in item_template")
@@ -1394,7 +2141,7 @@ end
 
 exploitTests[#exploitTests+1] = function()
     return run("EXPLOIT: Quest item (class=12) rejected by gear eligibility check", function()
-        local q = WorldDBQuery(
+        local q = AP.DB.WorldQuery(
             "SELECT `class`, `InventoryType` FROM `item_template` "..
             "WHERE `class` = 12 LIMIT 1;")
         if not q then
@@ -1491,58 +2238,58 @@ end
 -- T3-5: ap_session_state table exists and supports clean_exit flag
 tier3Tests[#tier3Tests+1] = function()
     return run("T3: ap_session_state round-trip", function()
-        CharDBQuery(string.format(
+        AP.DB.ExecuteCritical(string.format(
             "DELETE FROM `ap_session_state` WHERE `guid` = %d;", AP_TEST_GUID))
-        CharDBQuery(string.format(
+        AP.DB.ExecuteCritical(string.format(
             "INSERT INTO `ap_session_state` (`guid`,`clean_exit`) VALUES (%d, 1)",
             AP_TEST_GUID))
-        CharDBQuery("COMMIT;")
-        local q = CharDBQuery(string.format(
+        AP.DB.Execute("COMMIT;")
+        local q = AP.DB.Query(string.format(
             "SELECT `clean_exit` FROM `ap_session_state` WHERE `guid` = %d",
             AP_TEST_GUID))
         assertNotNil(q, "session_state row exists")
         local val = tonumber(tostring(q:GetUInt32(0))) or -1
         assertEqual(val, 1, "clean_exit = 1")
-        CharDBQuery(string.format(
+        AP.DB.ExecuteCritical(string.format(
             "UPDATE `ap_session_state` SET `clean_exit` = 0 WHERE `guid` = %d",
             AP_TEST_GUID))
-        CharDBQuery("COMMIT;")
-        local q2 = CharDBQuery(string.format(
+        AP.DB.Execute("COMMIT;")
+        local q2 = AP.DB.Query(string.format(
             "SELECT `clean_exit` FROM `ap_session_state` WHERE `guid` = %d",
             AP_TEST_GUID))
         assertNotNil(q2, "session_state row still exists")
         local val2 = tonumber(tostring(q2:GetUInt32(0))) or -1
         assertEqual(val2, 0, "clean_exit = 0 after reset")
-        CharDBQuery(string.format(
+        AP.DB.ExecuteCritical(string.format(
             "DELETE FROM `ap_session_state` WHERE `guid` = %d;", AP_TEST_GUID))
-        CharDBQuery("COMMIT;")
+        AP.DB.Execute("COMMIT;")
     end)
 end
 
 -- T3-6: Login resets clean_exit to 0 (per-player, no bulk startup reset)
 tier3Tests[#tier3Tests+1] = function()
     return run("T3: Login read-then-reset pattern for clean_exit", function()
-        CharDBQuery(string.format(
+        AP.DB.ExecuteCritical(string.format(
             "INSERT INTO `ap_session_state` (`guid`,`clean_exit`) VALUES (%d, 1) "..
             "ON DUPLICATE KEY UPDATE `clean_exit` = 1", AP_TEST_GUID))
-        CharDBQuery("COMMIT;")
-        local q1 = CharDBQuery(string.format(
+        AP.DB.Execute("COMMIT;")
+        local q1 = AP.DB.Query(string.format(
             "SELECT `clean_exit` FROM `ap_session_state` WHERE `guid` = %d",
             AP_TEST_GUID))
         assertNotNil(q1, "row exists before reset")
         assertEqual(tonumber(tostring(q1:GetUInt32(0))) or -1, 1, "clean_exit = 1 before login reset")
-        CharDBQuery(string.format(
+        AP.DB.ExecuteCritical(string.format(
             "UPDATE `ap_session_state` SET `clean_exit` = 0 WHERE `guid` = %d",
             AP_TEST_GUID))
-        CharDBQuery("COMMIT;")
-        local q2 = CharDBQuery(string.format(
+        AP.DB.Execute("COMMIT;")
+        local q2 = AP.DB.Query(string.format(
             "SELECT `clean_exit` FROM `ap_session_state` WHERE `guid` = %d",
             AP_TEST_GUID))
         assertNotNil(q2, "row survives reset")
         assertEqual(tonumber(tostring(q2:GetUInt32(0))) or -1, 0, "clean_exit = 0 after login reset")
-        CharDBQuery(string.format(
+        AP.DB.ExecuteCritical(string.format(
             "DELETE FROM `ap_session_state` WHERE `guid` = %d;", AP_TEST_GUID))
-        CharDBQuery("COMMIT;")
+        AP.DB.Execute("COMMIT;")
     end)
 end
 
@@ -1649,8 +2396,8 @@ end
 -- T4-8: Tier selection DB round-trip
 tier4Tests[#tier4Tests+1] = function()
     return run("T4: Tier selection persists through DB round-trip", function()
-        CharDBQuery(string.format("DELETE FROM `ap_visage` WHERE `guid`=%d;", AP_TEST_GUID))
-        CharDBQuery(string.format(
+        AP.DB.ExecuteCritical(string.format("DELETE FROM `ap_visage` WHERE `guid`=%d;", AP_TEST_GUID))
+        AP.DB.ExecuteCritical(string.format(
             "INSERT INTO `ap_visage` "..
             "(`guid`,`primary_theme`,`primary_enabled`,"..
             "`secondary_theme`,`secondary_enabled`,`flash_enabled`,`chat_flavor_enabled`,"..
@@ -1665,7 +2412,7 @@ tier4Tests[#tier4Tests+1] = function()
         assertEqual(c.primary_tier_selected, 2, "primary_tier_selected = 2")
         assertEqual(c.secondary_theme, "ethereal", "secondary_theme = ethereal")
         assertEqual(c.secondary_tier_selected, 4, "secondary_tier_selected = 4")
-        CharDBQuery(string.format("DELETE FROM `ap_visage` WHERE `guid`=%d;", AP_TEST_GUID))
+        AP.DB.ExecuteCritical(string.format("DELETE FROM `ap_visage` WHERE `guid`=%d;", AP_TEST_GUID))
         AP.Visage.Cache[AP_TEST_GUID] = nil
     end)
 end
@@ -1896,13 +2643,13 @@ end
 
 threatTests[#threatTests+1] = function()
     return run("THREAT: DB round-trip preserves threat without touching clean_exit", function()
-        CharDBQuery(string.format(
+        AP.DB.ExecuteCritical(string.format(
             "INSERT INTO `ap_session_state` (`guid`,`clean_exit`,`threat_level`,`threat_momentum`) "..
             "VALUES (%d, 1, 7, 0.4500) "..
             "ON DUPLICATE KEY UPDATE `threat_level`=7, `threat_momentum`=0.4500",
             AP_TEST_GUID))
-        CharDBQuery("COMMIT;")
-        local q = CharDBQuery(string.format(
+        AP.DB.Execute("COMMIT;")
+        local q = AP.DB.Query(string.format(
             "SELECT `clean_exit`, `threat_level`, `threat_momentum` FROM `ap_session_state` WHERE `guid`=%d",
             AP_TEST_GUID))
         assertNotNil(q, "row exists")
@@ -1910,8 +2657,8 @@ threatTests[#threatTests+1] = function()
         assertEqual(tonumber(tostring(q:GetUInt32(1))) or -1, 7, "threat_level = 7")
         local mom = tonumber(tostring(q:GetString(2))) or -1
         assertTrue(mom > 0.44 and mom < 0.46, "threat_momentum ~ 0.45")
-        CharDBQuery(string.format("DELETE FROM `ap_session_state` WHERE `guid`=%d", AP_TEST_GUID))
-        CharDBQuery("COMMIT;")
+        AP.DB.ExecuteCritical(string.format("DELETE FROM `ap_session_state` WHERE `guid`=%d", AP_TEST_GUID))
+        AP.DB.Execute("COMMIT;")
     end)
 end
 
@@ -2101,13 +2848,13 @@ end
 
 threatTests[#threatTests+1] = function()
     return run("THREAT: Debt DB round-trip", function()
-        CharDBQuery(string.format(
+        AP.DB.ExecuteCritical(string.format(
             "INSERT INTO `ap_session_state` (`guid`,`clean_exit`,`threat_debt_kills`,`threat_debt_mult`) "..
             "VALUES (%d, 1, 15, 0.6500) "..
             "ON DUPLICATE KEY UPDATE `threat_debt_kills`=15, `threat_debt_mult`=0.6500",
             AP_TEST_GUID))
-        CharDBQuery("COMMIT;")
-        local q = CharDBQuery(string.format(
+        AP.DB.Execute("COMMIT;")
+        local q = AP.DB.Query(string.format(
             "SELECT `clean_exit`, `threat_debt_kills`, `threat_debt_mult` FROM `ap_session_state` WHERE `guid`=%d",
             AP_TEST_GUID))
         assertNotNil(q, "row exists")
@@ -2115,8 +2862,8 @@ threatTests[#threatTests+1] = function()
         assertEqual(tonumber(tostring(q:GetUInt32(1))) or -1, 15, "debt_kills = 15")
         local dm = tonumber(tostring(q:GetString(2))) or -1
         assertTrue(dm > 0.64 and dm < 0.66, "debt_mult ~ 0.65")
-        CharDBQuery(string.format("DELETE FROM `ap_session_state` WHERE `guid`=%d", AP_TEST_GUID))
-        CharDBQuery("COMMIT;")
+        AP.DB.ExecuteCritical(string.format("DELETE FROM `ap_session_state` WHERE `guid`=%d", AP_TEST_GUID))
+        AP.DB.Execute("COMMIT;")
     end)
 end
 
@@ -2320,6 +3067,7 @@ local ALL_SUITES = {
     aether   = { label = "Aether",      tests = aetherTests   },
     ui       = { label = "UI",          tests = uiTests       },
     forge    = { label = "Forge",       tests = forgeTests    },
+    residue  = { label = "Residue",     tests = residueTests  },
     crucible = { label = "Crucible",    tests = crucibleTests },
     visage   = { label = "Visage",      tests = visageTests   },
     pvp      = { label = "PvP",         tests = pvpTests      },
@@ -2348,7 +3096,7 @@ function AP.RunTests(player, filter)
         if player and type(player.SendBroadcastMessage) == "function" then
             -- pcall so a broken player object can't kill the test run
             pcall(function()
-                player:SendBroadcastMessage("|cffff9900[APTEST]|r " .. msg)
+                AP.RT.SendMessage(player,"|cffff9900[APTEST]|r " .. msg)
             end)
         end
     end
@@ -2454,12 +3202,12 @@ local function HandleTestChat(player, msg)
 end
 
 -- Event 18: PLAYER_EVENT_ON_CHAT (SAY  -- works with .gm on and .gm off)
-RegisterPlayerEvent(18, function(event, player, msg, type, lang, channel)
+AP.RT.RegisterEvent("player", 18, function(event, player, msg, type, lang, channel)
     return HandleTestChat(player, msg)
 end)
 
 -- Event 19: PLAYER_EVENT_ON_WHISPER (whisper to self  -- reliable fallback)
-RegisterPlayerEvent(19, function(event, player, msg, lang, receiver)
+AP.RT.RegisterEvent("player", 19, function(event, player, msg, lang, receiver)
     return HandleTestChat(player, msg)
 end)
 
@@ -2467,7 +3215,7 @@ end)
 -- Fires for in-game /commands AND worldserver console input.
 -- player is nil when fired from the console.
 -- Usage from console: type  #aptest  or  #aptest math
-RegisterPlayerEvent(42, function(event, player, command)
+AP.RT.RegisterEvent("player", 42, function(event, player, command)
     if not command then return end
     -- event 42 passes the command without the leading slash
     -- e.g. typing ".aptest" in console passes "aptest"
@@ -2578,7 +3326,7 @@ local function StartupSelfCheck()
         "ap_item_attune", "ap_item_snapshot", "ap_mastery",
         "ap_slot_mastery", "ap_rack", "ap_quest_rewarded", "ap_dissolved_items"
     }) do
-        local q = CharDBQuery(string.format(
+        local q = AP.DB.Query(string.format(
             "SELECT 1 FROM information_schema.tables "..
             "WHERE table_schema = DATABASE() AND table_name = '%s' LIMIT 1;", tbl))
         expect("DB table exists: " .. tbl, q ~= nil)
@@ -2595,7 +3343,7 @@ local function StartupSelfCheck()
     end
 end
 
-RegisterServerEvent(3, function()
+AP.RT.RegisterEvent("server", 3, function()
     -- Layer 1: always run structural self-check
     pcall(StartupSelfCheck)
 

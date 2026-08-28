@@ -25,6 +25,13 @@ AP.Rack.ExpandTiers = {
     { 20, 0,     100 },  -- Tier 6: 100 Residue (max)
 }
 
+local function FindNextExpandTier(current)
+    for _, tier in ipairs(AP.Rack.ExpandTiers) do
+        if tier[1] > current then return tier end
+    end
+    return nil
+end
+
 -- Session cache: guid -> { [slot_index] -> {item_entry, item_name, item_quality} }
 AP.Rack.Cache = AP.Rack.Cache or {}
 
@@ -33,7 +40,7 @@ AP.Rack.Cache = AP.Rack.Cache or {}
 -- ============================================================
 
 function AP.Rack.GetCapacity(guid)
-    local q = CharDBQuery(string.format(
+    local q = AP.DB.Query(string.format(
         "SELECT `rack_slots` FROM `ap_mastery` WHERE `guid` = %d",
         guid
     ))
@@ -43,13 +50,114 @@ function AP.Rack.GetCapacity(guid)
     return 3
 end
 
+function AP.Rack.PreviewExpand(player)
+    if not player then return { ok = false, status = "SERVICE_UNAVAILABLE" } end
+    local guid = AP.RT.GetGUID(player)
+    local accountId = AP.RT.GetAccountId(player)
+    if not guid or not accountId then
+        return { ok = false, status = "SERVICE_UNAVAILABLE" }
+    end
+
+    local q = AP.DB.Query(string.format(
+        "SELECT `rack_slots` FROM `ap_mastery` WHERE `guid` = %d", guid))
+    if not q then return { ok = false, status = "SERVICE_UNAVAILABLE" } end
+    local current = tonumber(tostring(q:GetUInt32(0)))
+    if current == nil then return { ok = false, status = "SERVICE_UNAVAILABLE" } end
+
+    local tier = FindNextExpandTier(current)
+    if not tier then
+        return { ok = true, status = "AT_MAX", atMaxCapacity = true,
+                 currentSlots = current, expectedResidue = nil }
+    end
+
+    local expectedResidue = nil
+    if tier[3] > 0 then
+        local residueOk
+        residueOk, expectedResidue = AP.Forge.GetVerifiedResidue(accountId)
+        if not residueOk then return { ok = false, status = "SERVICE_UNAVAILABLE" } end
+    end
+
+    return {
+        ok = true,
+        status = "READY",
+        atMaxCapacity = false,
+        currentSlots = current,
+        nextSlots = tier[1],
+        essenceCost = tier[2],
+        residueCost = tier[3],
+        expectedResidue = expectedResidue,
+    }
+end
+
+function AP.Rack.PurchaseExpand(player, expectedCurrent, expectedNext, expectedResidue)
+    local result = { ok = false, status = "SERVICE_UNAVAILABLE", physicalSynced = false }
+    if not player or type(expectedCurrent) ~= "number" or type(expectedNext) ~= "number" or
+            type(expectedResidue) ~= "number" then
+        return result
+    end
+
+    expectedCurrent = math.floor(expectedCurrent)
+    expectedNext = math.floor(expectedNext)
+    expectedResidue = math.floor(expectedResidue)
+    local tier = FindNextExpandTier(expectedCurrent)
+    if not tier or tier[1] ~= expectedNext or tier[2] ~= 0 or tier[3] <= 0 then
+        result.status = "INELIGIBLE"
+        return result
+    end
+
+    local guid = AP.RT.GetGUID(player)
+    local accountId = AP.RT.GetAccountId(player)
+    local cost = tier[3]
+    result.cost = cost
+    result.oldSlots = expectedCurrent
+    result.newSlots = expectedNext
+    result.oldBalance = expectedResidue
+    if not guid or not accountId then return result end
+    if expectedResidue < cost then
+        result.status = "INSUFFICIENT_RESIDUE"
+        return result
+    end
+
+    local wrote = AP.DB.ExecuteCritical(string.format(
+        "UPDATE `ap_mastery` AS m JOIN `ap_residue` AS r ON r.`account_id` = %d "..
+        "SET m.`rack_slots` = %d, r.`amount` = r.`amount` - %d "..
+        "WHERE m.`guid` = %d AND m.`rack_slots` = %d "..
+        "AND r.`amount` = %d AND r.`amount` >= %d",
+        accountId, expectedNext, cost, guid, expectedCurrent, expectedResidue, cost),
+        "AP.Rack.PurchaseExpand")
+    if not wrote then result.status = "DATABASE_FAILURE"; return result end
+
+    local after = AP.DB.Query(string.format(
+        "SELECT m.`rack_slots`, r.`amount` FROM `ap_mastery` AS m "..
+        "JOIN `ap_residue` AS r ON r.`account_id` = %d WHERE m.`guid` = %d",
+        accountId, guid))
+    if not after then result.status = "POST_VERIFY_FAILURE"; return result end
+    local slotsAfter = tonumber(tostring(after:GetUInt32(0)))
+    local residueAfter = tonumber(tostring(after:GetUInt32(1)))
+    local targetResidue = expectedResidue - cost
+    if slotsAfter ~= expectedNext or residueAfter ~= targetResidue then
+        result.status = "STALE_PREVIEW"
+        result.newBalance = residueAfter
+        result.physicalSynced, result.physicalReason =
+            AP.Forge.SyncResidueAccountRepresentations(player, accountId, residueAfter)
+        return result
+    end
+
+    result.ok = true
+    result.status = "SUCCESS"
+    result.newBalance = residueAfter
+    result.physicalSynced, result.physicalReason =
+        AP.Forge.SyncResidueAccountRepresentations(player, accountId, residueAfter)
+    return result
+end
+
 -- ============================================================
 -- LOAD / QUERY
 -- ============================================================
 
 function AP.Rack.Load(guid)
     AP.Rack.Cache[guid] = {}
-    local q = CharDBQuery(string.format(
+    local q = AP.DB.Query(string.format(
         "SELECT `slot_index`,`item_entry`,`item_name`,`item_quality` "..
         "FROM `ap_rack` WHERE `guid` = %d ORDER BY `slot_index`",
         guid
@@ -99,7 +207,7 @@ end
 -- ============================================================
 
 function AP.Rack.AddItem(player, itemEntry)
-    local guid = player:GetGUIDLow()
+    local guid = AP.RT.GetGUID(player)
     if not AP.Rack.Cache[guid] then AP.Rack.Load(guid) end
     local cache = AP.Rack.Cache[guid]
 
@@ -107,13 +215,13 @@ function AP.Rack.AddItem(player, itemEntry)
     -- Doubles as the name/quality lookup, replacing the later WorldDBQuery.
     local itemName    = "Unknown Item"
     local itemQuality = 1
-    local wq = WorldDBQuery(string.format(
+    local wq = AP.DB.WorldQuery(string.format(
         "SELECT `name`, `Quality`, `class`, `InventoryType` FROM `item_template` WHERE `entry` = %d",
         itemEntry
     ))
     if not wq then
         AP.Voice.Speak(player, "rack_unknown_entry")
-        player:SendBroadcastMessage(
+        AP.RT.SendMessage(player,
             "|cff888888Tip: check the ID with #apfind <name>.|r"
         )
         return false
@@ -127,7 +235,7 @@ function AP.Rack.AddItem(player, itemEntry)
     local iClass  = tonumber(tostring(wq:GetUInt8(2))) or 0
     local invType = tonumber(tostring(wq:GetUInt32(3))) or 0
     if not ((iClass == 2 or iClass == 4) and invType > 0) then
-        player:SendBroadcastMessage(
+        AP.RT.SendMessage(player,
             "|cffff4444[Worldsoul]|r Only weapons and armor can be placed on the Rack."
         )
         return false
@@ -136,7 +244,7 @@ function AP.Rack.AddItem(player, itemEntry)
     -- Require physical possession — the Rack tracks items the player carries.
     local hasItem = false
     local possOk = pcall(function()
-        hasItem = player:GetItemCount(itemEntry, true) > 0
+        hasItem = AP.RT.GetItemCount(player,itemEntry, true) > 0
     end)
     if not possOk or not hasItem then
         AP.Voice.Speak(player, "rack_not_possessed")
@@ -146,7 +254,7 @@ function AP.Rack.AddItem(player, itemEntry)
     -- Check if already on Rack
     for _, slot in pairs(cache) do
         if slot.item_entry == itemEntry then
-            player:SendBroadcastMessage(
+            AP.RT.SendMessage(player,
                 "|cffffd700[Worldsoul]|r That item is already on the Rack."
             )
             return false
@@ -164,7 +272,7 @@ function AP.Rack.AddItem(player, itemEntry)
     end
 
     if not emptySlot then
-        player:SendBroadcastMessage(string.format(
+        AP.RT.SendMessage(player,string.format(
             "|cffffd700[Worldsoul]|r The Attunement Rack is full "..
             "(%d/%d slots used). "..
             "Open |cffffff00#ap|r then Attunement Rack to expand it.",
@@ -175,7 +283,7 @@ function AP.Rack.AddItem(player, itemEntry)
 
     -- Escape apostrophes for SQL only; cache keeps the original display name.
     local itemNameSQL = itemName:gsub("'", "''")
-    CharDBExecute(string.format(
+    AP.DB.ExecuteAsync(string.format(
         "INSERT INTO `ap_rack` (`guid`,`slot_index`,`item_entry`,"..
         "`item_name`,`item_quality`) VALUES (%d,%d,%d,'%s',%d) "..
         "ON DUPLICATE KEY UPDATE `item_entry`=%d, `item_name`='%s', "..
@@ -183,7 +291,7 @@ function AP.Rack.AddItem(player, itemEntry)
         guid, emptySlot, itemEntry, itemNameSQL, itemQuality,
         itemEntry, itemNameSQL, itemQuality
     ))
-    CharDBExecute("COMMIT")
+    AP.DB.ExecuteAsync("COMMIT")
 
     cache[emptySlot] = {
         item_entry   = itemEntry,
@@ -191,7 +299,7 @@ function AP.Rack.AddItem(player, itemEntry)
         item_quality = itemQuality,
     }
 
-    player:SendBroadcastMessage(string.format(
+    AP.RT.SendMessage(player,string.format(
         "|cffffd700[Worldsoul]|r %s |cff666666(#%d)|r placed in the Rack "..
         "(slot %d). Its echo begins to form.",
         itemName, itemEntry, emptySlot
@@ -200,10 +308,10 @@ function AP.Rack.AddItem(player, itemEntry)
 end
 
 function AP.Rack.RemoveItem(player, slotIndex)
-    local guid  = player:GetGUIDLow()
+    local guid  = AP.RT.GetGUID(player)
     local cache = AP.Rack.Cache[guid]
     if not cache or not cache[slotIndex] then
-        player:SendBroadcastMessage(
+        AP.RT.SendMessage(player,
             "|cffff4444[Worldsoul]|r No item in that Rack slot."
         )
         return false
@@ -211,15 +319,15 @@ function AP.Rack.RemoveItem(player, slotIndex)
 
     local itemName = cache[slotIndex].item_name
 
-    CharDBExecute(string.format(
+    AP.DB.ExecuteAsync(string.format(
         "UPDATE `ap_rack` SET `item_entry`=0, `item_name`='', `item_quality`=1 "..
         "WHERE `guid`=%d AND `slot_index`=%d",
         guid, slotIndex
     ))
-    CharDBExecute("COMMIT")
+    AP.DB.ExecuteAsync("COMMIT")
     cache[slotIndex] = nil
 
-    player:SendBroadcastMessage(string.format(
+    AP.RT.SendMessage(player,string.format(
         "|cffffd700[Worldsoul]|r %s removed from the Rack.", itemName
     ))
     return true
@@ -235,9 +343,9 @@ end
 
 -- Check if a Rack item newly reached full attunement; notify player
 function AP.Rack.CheckAttuned(player, itemEntry)
-    local guid = player:GetGUIDLow()
+    local guid = AP.RT.GetGUID(player)
     local cap = AP.GetScaledCap(itemEntry)
-    local q = CharDBQuery(string.format(
+    local q = AP.DB.Query(string.format(
         "SELECT `progress`, `attuned` FROM `ap_item_attune` "..
         "WHERE `guid` = %d AND `item_entry` = %d",
         guid, itemEntry
@@ -248,19 +356,19 @@ function AP.Rack.CheckAttuned(player, itemEntry)
     local attuned  = tonumber(tostring(q:GetUInt32(1))) or 0
 
     if progress >= cap and attuned == 0 then
-        CharDBQuery(string.format(
+        AP.DB.ExecuteCritical(string.format(
             "UPDATE `ap_item_attune` SET `attuned`=1 "..
             "WHERE `guid`=%d AND `item_entry`=%d",
             guid, itemEntry
         ))
-        CharDBQuery("COMMIT;")
+        AP.DB.Execute("COMMIT;")
 
         -- Capture snapshot so the Legacy Forge can list this item.
         -- Normal equip-path attunement creates the snapshot in ap_events.lua;
         -- Rack attunement bypasses that path, so we create it here.
         AP.Try(function()
-            local accountId = player:GetAccountId()
-            local iq = WorldDBQuery(string.format(
+            local accountId = AP.RT.GetAccountId(player)
+            local iq = AP.DB.WorldQuery(string.format(
                 "SELECT `stat_type1`,`stat_value1`,"..
                 "`stat_type2`,`stat_value2`,"..
                 "`stat_type3`,`stat_value3`,"..
@@ -303,7 +411,7 @@ function AP.Rack.CheckAttuned(player, itemEntry)
             end
         end
 
-        player:SendBroadcastMessage(string.format(
+        AP.RT.SendMessage(player,string.format(
             "|cff9966ff[Worldsoul]|r %s has fully attuned in the Rack. "..
             "Its echo is ready to be claimed.",
             itemName
@@ -327,45 +435,40 @@ end
 -- ============================================================
 
 function AP.Rack.Expand(player)
-    local guid      = player:GetGUIDLow()
-    local accountId = player:GetAccountId()
-    local current   = AP.Rack.GetCapacity(guid)
-
-    local nextTier = nil
-    for _, tier in ipairs(AP.Rack.ExpandTiers) do
-        if tier[1] > current then
-            nextTier = tier
-            break
-        end
+    local guid = AP.RT.GetGUID(player)
+    local preview = AP.Rack.PreviewExpand(player)
+    if not preview.ok then
+        AP.RT.SendMessage(player,
+            "|cffff4444[Worldsoul]|r Rack expansion state is unavailable. Nothing was spent.")
+        return false
     end
-
-    if not nextTier then
-        player:SendBroadcastMessage(
+    if preview.atMaxCapacity then
+        AP.RT.SendMessage(player,
             "|cffffd700[Worldsoul]|r The Attunement Rack is at maximum capacity (20 slots)."
         )
         return false
     end
 
-    local newSlots    = nextTier[1]
-    local essenceCost = nextTier[2]
-    local residueCost = nextTier[3]
+    local newSlots    = preview.nextSlots
+    local essenceCost = preview.essenceCost
+    local residueCost = preview.residueCost
 
     if essenceCost > 0 then
         local aether = 0
-        local aq = CharDBQuery(string.format(
+        local aq = AP.DB.Query(string.format(
             "SELECT `aether` FROM `ap_mastery` WHERE `guid` = %d", guid
         ))
         if aq then aether = tonumber(tostring(aq:GetUInt32(0))) or 0 end
 
         if aether < essenceCost then
-            player:SendBroadcastMessage(string.format(
+            AP.RT.SendMessage(player,string.format(
                 "|cffff4444[Worldsoul]|r Not enough Essence. Need %d, have %d.",
                 essenceCost, aether
             ))
             return false
         end
 
-        CharDBQuery(string.format(
+        AP.DB.ExecuteCritical(string.format(
             "UPDATE `ap_mastery` SET `aether` = `aether` - %d, "..
             "`rack_slots` = %d WHERE `guid` = %d",
             essenceCost, newSlots, guid
@@ -373,31 +476,29 @@ function AP.Rack.Expand(player)
     end
 
     if residueCost > 0 then
-        local residue = AP.Forge and AP.Forge.GetResidue(accountId) or 0
-
-        if residue < residueCost then
-            player:SendBroadcastMessage(string.format(
+        if preview.expectedResidue < residueCost then
+            AP.RT.SendMessage(player,string.format(
                 "|cffff4444[Worldsoul]|r Not enough Worldsoul Residue. "..
                 "Need %d, have %d. Visit the Legacy Forge to earn more.",
-                residueCost, residue
+                residueCost, preview.expectedResidue
             ))
             return false
         end
 
-        if AP.Forge then
-            AP.Forge.SpendResidue(accountId, residueCost)
-            pcall(function() player:RemoveItem(900011, residueCost) end)
+        local purchase = AP.Rack.PurchaseExpand(
+            player, preview.currentSlots, preview.nextSlots, preview.expectedResidue)
+        if not purchase.ok then
+            AP.RT.SendMessage(player,
+                "|cffff4444[Worldsoul]|r Rack expansion could not be committed. Nothing was spent.")
+            return false
         end
-
-        CharDBQuery(string.format(
-            "UPDATE `ap_mastery` SET `rack_slots` = %d WHERE `guid` = %d",
-            newSlots, guid
-        ))
     end
 
-    CharDBQuery("COMMIT;")
+    if essenceCost > 0 then
+        AP.DB.Execute("COMMIT;")
+    end
 
-    player:SendBroadcastMessage(string.format(
+    AP.RT.SendMessage(player,string.format(
         "|cff9966ff[Worldsoul]|r The Attunement Rack expands. "..
         "|cffffff00%d slots|r now available.",
         newSlots
@@ -439,12 +540,12 @@ local PICKER_QUALITY_COLORS = {
 }
 
 function AP.Rack.ShowPage(player, npc)
-    local guid = player:GetGUIDLow()
+    local guid = AP.RT.GetGUID(player)
     if not AP.Rack.Cache[guid] then AP.Rack.Load(guid) end
     local cache    = AP.Rack.Cache[guid]
     local capacity = AP.Rack.GetCapacity(guid)
 
-    player:GossipClearMenu()
+    AP.UI.ClearMenu(player)
 
     local header = string.format(
         "Attunement Rack -- Items here attune at 20%%%% of normal rate\n"..
@@ -454,14 +555,14 @@ function AP.Rack.ShowPage(player, npc)
         "or |cffffff00#ap rack <itemEntry>|r for a specific ID.",
         AP.Rack.CountSlots(guid), capacity
     )
-    player:GossipMenuAddItem(0, header, 240, 0)
+    AP.UI.AddItem(player,0, header, 240, 0)
 
     for i = 1, capacity do
         local slot = cache[i]
         if slot and slot.item_entry > 0 then
             local progress = 0
             local attuned  = false
-            local pq = CharDBQuery(string.format(
+            local pq = AP.DB.Query(string.format(
                 "SELECT `progress`,`attuned` FROM `ap_item_attune` "..
                 "WHERE `guid`=%d AND `item_entry`=%d",
                 guid, slot.item_entry
@@ -479,16 +580,16 @@ function AP.Rack.ShowPage(player, npc)
                 "[%d] %s |cff666666(#%d)|r -- %s  [Remove]",
                 i, slot.item_name, slot.item_entry, status
             )
-            player:GossipMenuAddItem(0, label, 241, i)
+            AP.UI.AddItem(player,0, label, 241, i)
         else
-            player:GossipMenuAddItem(0,
+            AP.UI.AddItem(player,0,
                 string.format("[%d] Empty slot", i),
                 240, 0)
         end
     end
 
     -- Bag picker entry point
-    player:GossipMenuAddItem(0, "Add an item from your bags", 244, 0)
+    AP.UI.AddItem(player,0, "Add an item from your bags", 244, 0)
 
     -- Next expansion tier
     local nextTier = nil
@@ -506,37 +607,37 @@ function AP.Rack.ShowPage(player, npc)
         else
             costStr = string.format("%d Worldsoul Residue", nextTier[3])
         end
-        player:GossipMenuAddItem(0, string.format(
+        AP.UI.AddItem(player,0, string.format(
             "Expand Rack to %d slots (%s)",
             nextTier[1], costStr
         ), 243, 0)
     else
-        player:GossipMenuAddItem(0,
+        AP.UI.AddItem(player,0,
             "|cff888888Rack at maximum capacity (20 slots)|r",
             240, 0)
     end
 
-    player:GossipMenuAddItem(0, "<< Back to Main Menu", 242, 0)
-    player:GossipSendMenu(1, npc, 240)
+    AP.UI.AddItem(player,0, "<< Back to Main Menu", 242, 0)
+    AP.UI.SendMenu(player,1, npc, 240)
 end
 
 function AP.Rack.ShowPickerPage(player, npc)
-    local guid = player:GetGUIDLow()
+    local guid = AP.RT.GetGUID(player)
     if not AP.Rack.Cache[guid] then AP.Rack.Load(guid) end
     local cache    = AP.Rack.Cache[guid]
     local capacity = AP.Rack.GetCapacity(guid)
 
-    player:GossipClearMenu()
+    AP.UI.ClearMenu(player)
 
     -- Rack full: no point scanning bags.
     local used = AP.Rack.CountSlots(guid)
     if used >= capacity then
-        player:GossipMenuAddItem(0, string.format(
+        AP.UI.AddItem(player,0, string.format(
             "The Rack is full (%d/%d slots). "..
             "Expand it or remove an item before adding another.",
             used, capacity), 244, 0)
-        player:GossipMenuAddItem(0, "<< Back to Rack", 240, 0)
-        player:GossipSendMenu(1, npc, 244)
+        AP.UI.AddItem(player,0, "<< Back to Rack", 240, 0)
+        AP.UI.SendMenu(player,1, npc, 244)
         return
     end
 
@@ -550,7 +651,7 @@ function AP.Rack.ShowPickerPage(player, npc)
 
     -- Fully-attuned entries for this character (one batch query).
     local attuned = {}
-    local aq = CharDBQuery(string.format(
+    local aq = AP.DB.Query(string.format(
         "SELECT `item_entry` FROM `ap_item_attune` "..
         "WHERE `guid` = %d AND `attuned` = 1", guid))
     if aq then
@@ -570,14 +671,14 @@ function AP.Rack.ShowPickerPage(player, npc)
 
     local function scanSlot(bag, slot)
         local item = nil
-        pcall(function() item = player:GetItemByPos(bag, slot) end)
+        pcall(function() item = AP.RT.GetItemByPos(player,bag, slot) end)
         if not item then return end
         local entry = 0
-        pcall(function() entry = item:GetEntry() end)
+        pcall(function() entry = AP.RT.GetItemEntry(item) end)
         if entry > 0 and not seenEntries[entry]
                 and not onRack[entry] and not attuned[entry] then
             seenEntries[entry] = true
-            local wq = WorldDBQuery(string.format(
+            local wq = AP.DB.WorldQuery(string.format(
                 "SELECT `name`, `Quality`, `class`, `InventoryType` "..
                 "FROM `item_template` WHERE `entry` = %d LIMIT 1", entry))
             if wq then
@@ -604,11 +705,11 @@ function AP.Rack.ShowPickerPage(player, npc)
     end
 
     if #candidates == 0 then
-        player:GossipMenuAddItem(0,
+        AP.UI.AddItem(player,0,
             "Nothing in your bags is eligible for the Rack right now.",
             244, 0)
-        player:GossipMenuAddItem(0, "<< Back to Rack", 240, 0)
-        player:GossipSendMenu(1, npc, 244)
+        AP.UI.AddItem(player,0, "<< Back to Rack", 240, 0)
+        AP.UI.SendMenu(player,1, npc, 244)
         return
     end
 
@@ -622,20 +723,20 @@ function AP.Rack.ShowPickerPage(player, npc)
     for i = 1, shown do
         local c     = candidates[i]
         local color = PICKER_QUALITY_COLORS[c.quality] or PICKER_QUALITY_COLORS[1]
-        player:GossipMenuAddItem(0,
+        AP.UI.AddItem(player,0,
             string.format("%s%s|r", color, c.name),
             245, c.entry)
     end
 
     if #candidates > 10 then
-        player:GossipMenuAddItem(0, string.format(
+        AP.UI.AddItem(player,0, string.format(
             "...and %d more. Narrow down by removing gear first, "..
             "or use |cffffff00#ap rack <item ID>|r directly.",
             #candidates - 10), 244, 0)
     end
 
-    player:GossipMenuAddItem(0, "<< Back to Rack", 240, 0)
-    player:GossipSendMenu(1, npc, 244)
+    AP.UI.AddItem(player,0, "<< Back to Rack", 240, 0)
+    AP.UI.SendMenu(player,1, npc, 244)
 end
 
 function AP.Rack.OnSelect(player, npc, sender, code)
@@ -663,13 +764,13 @@ end
 
 local function OnLogin_Rack(event, player)
     local ok, err = pcall(function()
-        AP.Rack.Load(player:GetGUIDLow())
+        AP.Rack.Load(AP.RT.GetGUID(player))
     end)
     if not ok then
         print("[EotW Rack] ERROR in OnLogin_Rack: " .. tostring(err))
     end
 end
 
-RegisterPlayerEvent(3, OnLogin_Rack)
+AP.RT.RegisterEvent("player", 3, OnLogin_Rack)
 
 print("[EotW] Attunement Rack loaded. Max slots: " .. AP.Rack.MAX_SLOTS)
