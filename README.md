@@ -9,10 +9,13 @@ deepen the longer you stay.
 
 ## Feedback / Compatibility Reports
 
-Echoes of the Worldsoul is currently in release-candidate testing.
+Echoes of the Worldsoul is under active development toward a 2.0 release.
+This package now includes a graphical Client Companion AddOn and optional
+Playerbots integration in addition to everything `v1.6.0-rc1` shipped;
+compatibility verification for this expanded scope is still in progress.
 
-If you test `v1.6.0-rc1`, compatibility reports and balance feedback are welcome
-through [GitHub Issues](https://github.com/vibecoder99-cmd/echoes-of-the-worldsoul/issues/new/choose).
+Compatibility reports and balance feedback are welcome through
+[GitHub Issues](https://github.com/vibecoder99-cmd/echoes-of-the-worldsoul/issues/new/choose).
 Please include your AzerothCore revision, Eluna version, operating system, SQL
 import result, Lua load result, C++ rebuild result, and client-pack status when
 reporting issues.
@@ -66,10 +69,11 @@ the system — quiet at first, more present as your attunement deepens.
 | Component | Version / Notes |
 |-----------|----------------|
 | AzerothCore | 3.3.5a (any recent release) |
-| Eluna Lua engine | Must be enabled in your AzerothCore build |
+| mod-ale (Eluna fork) | External prerequisite -- not bundled in this repository. Build with `LUA_VERSION=lua52` (this project's Lua targets Lua 5.2, not the more common 5.1). See `modules/mod-ale` on your own AzerothCore checkout, or your server's existing Eluna install. |
+| mod-playerbots | Optional external prerequisite. Only needed if you want Playerbots integration (`cpp_patch/mod-echoes-playerbots/`); everything else in this package works with zero Playerbots dependency. |
 | MySQL | acore_characters and acore_world databases |
 | WoW client | 3.3.5a, build 12340 (enUS). Players need the provided client patch MPQ and EchoesOfTheWorldsoulBridge addon for custom item display and tooltip support. |
-| Python | 3.6+ (only needed to run the DBC patch script) |
+| Python | 3.6+ (to run the DBC patch script and the optional MPQ packaging tool, `dbc_patch/mpq_writer.py`) |
 
 ---
 
@@ -100,12 +104,17 @@ Recommended practices:
 
 See **`INSTALL.md`** for the full step-by-step setup. The short version:
 
-1. Apply the C++ patch from `cpp_patch/` and rebuild AzerothCore.
-2. Run `sql/schema/full_schema.sql` against `acore_characters`.
+1. Copy `cpp_patch/mod-echoes-stats/` (required) and, if you run Playerbots,
+   `cpp_patch/mod-echoes-playerbots/` (optional) into your AzerothCore
+   `modules/` directory and rebuild. `mod-echoes-playerbots` builds safely
+   either way -- it self-gates via `#ifdef MOD_PLAYERBOTS`.
+2. Run `sql/schema/00_preflight.sql` through `sql/schema/90_validation.sql`,
+   in that numeric order, against `acore_characters`.
 3. Run `sql/data/world_items.sql` against `acore_world`.
 4. Copy all files from `lua_scripts/` into your server's `lua_scripts/` folder.
-5. Patch your `Item.dbc` using `dbc_patch/patch_item_dbc.py` and put the result
-   in a client patch MPQ.
+5. Patch your `Item.dbc` using `dbc_patch/patch_item_dbc.py` (or the combined
+   `dbc_patch/build_patch_mpq.py`, which also packages the result into an
+   MPQ) and put the result in a client patch MPQ.
 6. Install `client_addon/EchoesOfTheWorldsoulBridge/` into your WoW client's
    `Interface/AddOns/` folder.
 7. Restart the server. Type `#ap` in-game to confirm the mod is live.
@@ -142,18 +151,27 @@ the scripts.
 
 ```
 echoes-of-the-worldsoul/
-├── lua_scripts/          Server-side Eluna Lua scripts (20 files)
-├── cpp_patch/            Unified diff for the C++ AzerothCore module
+├── lua_scripts/          Server-side Eluna Lua scripts (28 files)
+├── cpp_patch/
+│   ├── mod-echoes-stats/       Required -- engine-level stat/Crucible-effect application
+│   └── mod-echoes-playerbots/  Optional -- Playerbots integration, self-gated at compile time
 ├── sql/
-│   ├── schema/           full_schema.sql — all 20 ap_* tables (acore_characters)
+│   ├── schema/           00_preflight.sql .. 90_validation.sql — numbered install package,
+│   │                     18 ap_* tables (acore_characters), run in order
 │   └── data/             world_items.sql — custom item rows (acore_world)
-├── dbc_patch/            patch_item_dbc.py + DBC_EDITING_NOTES.md
-├── client_addon/         EchoesOfTheWorldsoulBridge WoW AddOn
+├── dbc_patch/            patch_item_dbc.py, mpq_writer.py, build_patch_mpq.py,
+│                         test_mpq_writer.py, DBC_EDITING_NOTES.md
+├── client_addon/         EchoesOfTheWorldsoulBridge WoW AddOn (graphical UI)
 ├── INSTALL.md
 ├── CHANGELOG.md
 ├── LICENSE
 └── README.md
 ```
+
+Not included in this repository: `mod-ale` (the Eluna Lua engine fork this
+project's Lua depends on) and `mod-playerbots` (needed only for the optional
+Playerbots integration). Both are external prerequisites -- see Requirements
+above.
 
 ---
 
@@ -178,8 +196,11 @@ probe (`zz_eluna_probe.lua`) before assuming support.
 **SQL requirement:** Run SQL migrations before enabling Lua scripts. Some
 AzerothCore builds hard-abort on missing columns/tables during DB queries.
 
-**C++ module:** Required for stat application. Must be compiled into
-`worldserver.exe` via AzerothCore module system. No separate DLL.
+**C++ modules:** `mod-echoes-stats` is required for stat/Crucible-effect
+application -- must be compiled into `worldserver.exe` via AzerothCore's
+module system. No separate DLL. `mod-echoes-playerbots` is optional
+(Playerbots integration only) and builds safely whether or not
+mod-playerbots is present.
 
 ---
 

@@ -27,22 +27,24 @@ Before starting, confirm you have:
 
 ---
 
-## Step 1 — Apply the C++ Module Patch
+## Step 1 — Install the C++ Modules
 
-The mod ships as a unified diff against an AzerothCore checkout. Apply it from
-the root of your AzerothCore source tree:
+The mod ships as two full AzerothCore module source trees, not a patch file.
+Copy them into your AzerothCore checkout's `modules/` directory:
 
 ```bash
-git apply path/to/echoes-of-the-worldsoul/cpp_patch/mod_attunement_plus.patch
+cp -r path/to/echoes-of-the-worldsoul/cpp_patch/mod-echoes-stats \
+      path/to/your/azerothcore/modules/
+# Optional, only if you run mod-playerbots:
+cp -r path/to/echoes-of-the-worldsoul/cpp_patch/mod-echoes-playerbots \
+      path/to/your/azerothcore/modules/
 ```
 
-This creates two new files under `modules/mod-attunement-plus/src/`:
-
-```
-modules/mod-attunement-plus/src/
-    mod_attunement_plus.cpp
-    mod_attunement_plus_loader.cpp
-```
+`mod-echoes-stats` is required -- it is the engine-level application layer
+for every Echoes stat/Crucible effect. `mod-echoes-playerbots` is optional
+and safe to include even if you do not run Playerbots: every Playerbots
+symbol it uses is guarded by `#ifdef MOD_PLAYERBOTS`, so it compiles to an
+inert no-op when Playerbots is absent from your `modules/` tree.
 
 AzerothCore's build system auto-discovers modules under `modules/*/src/` — no
 `CMakeLists.txt` changes are needed.
@@ -55,21 +57,24 @@ cmake ..          # re-run cmake so it picks up the new module files
 make -j$(nproc)   # or your platform equivalent (MSBuild on Windows)
 ```
 
-Confirm the build output mentions `mod-attunement-plus` being compiled. If it
-does not appear, verify the two `.cpp` files are present in the path above.
+Confirm the build output mentions `mod-echoes-stats` (and `mod-echoes-playerbots`
+if you copied it) being compiled.
 
 ---
 
 ## Step 2 — Apply the SQL Schema
 
-Two SQL files must be run against two different databases. Order matters: run
-the schema file first.
+Two sets of SQL must be run against two different databases. Order matters:
+run the schema package first.
 
-**Characters database (20 tables):**
+**Characters database (18 tables), in numeric order:**
 
 ```bash
-mysql -u [user] -p acore_characters < sql/schema/full_schema.sql
+for f in sql/schema/*.sql; do mysql -u [user] -p acore_characters < "$f"; done
 ```
+
+(Or run each of `00_preflight.sql` through `90_validation.sql` individually,
+in that order, if you prefer to inspect each step's output.)
 
 This creates all 20 `ap_*` tables. The statements are `CREATE TABLE IF NOT EXISTS`
 and are safe to run on an existing install — they produce no errors and make no
@@ -259,22 +264,23 @@ Schema changes between releases ship as numbered migration files in
 what you have already applied, in order:
 
 ```bash
-# Example: updating from 1.0.0 to a release that added migration 002
-mysql -u [user] -p acore_characters < sql/migrations/002_example_feature.sql
+# Fresh install or upgrade -- the same six files, in the same order, either way
+for f in sql/schema/*.sql; do mysql -u [user] -p acore_characters < "$f"; done
 ```
 
-Each migration file is idempotent — running it twice produces no errors and no
-duplicate changes. Running an old migration by accident is harmless.
+The separate numbered `sql/migrations/` files from earlier releases are gone
+-- schema evolution is now handled inside `sql/schema/30_versioned_migrations.sql`
+itself, via guarded (`information_schema`-checked) `ADD COLUMN`/`CREATE TABLE`
+statements. Every file in `sql/schema/` is idempotent: rerunning the whole
+sequence against an already-current database is a safe no-op, and rerunning
+it against an older installed schema applies exactly the columns/tables that
+are missing without touching existing data. `sql/schema/ap_schema_version`
+(stamped by `40_seed_or_defaults.sql`) records the currently-applied version.
 
-Migration `001_initial_release.sql` is the 1.0.0 baseline marker; it contains
-no SQL to execute (see its header comment). For a fresh install, always use
-`sql/schema/full_schema.sql` rather than applying migrations one by one.
-
-> **Why no migration-tracking table?** At this project's current scale — one
-> primary operator plus anyone pulling a GitHub release — idempotent files
-> applied by visual inspection of the `migrations/` folder is sufficient. A
-> formal migration runner would add complexity without meaningful benefit here.
-> If this ever changes, a tracking table can be added as migration 00N.
+> **Why no separate migration-tracking table?** The guard conditions
+> themselves (checking `information_schema` before every `ALTER`/`CREATE`)
+> serve that purpose without a second bookkeeping mechanism. At this
+> project's current scale, that is sufficient.
 
 ### Lua scripts
 
@@ -288,10 +294,11 @@ updated version. If the `## Version` field in `EchoesOfTheWorldsoulBridge.toc`
 changes, the server's in-game version mismatch warning will fire for any player
 still on the old version — this is the intended signal for players to update.
 
-### C++ module
+### C++ modules
 
-Re-apply the updated patch from `cpp_patch/`, rebuild AzerothCore, and restart
-the worldserver.
+Copy the updated `cpp_patch/mod-echoes-stats/` (and `mod-echoes-playerbots/`
+if you use it) over your existing copies under `modules/`, rebuild
+AzerothCore, and restart the worldserver.
 
 ### DBC / client data
 
