@@ -66,11 +66,11 @@ def verify(azerothcore_root, mysql_args=None, characters_database=None):
         path = pmpq.get("path")
         actual = hashing.sha256_file(path) if path else None
         if actual is None:
-            checks.append(Check("patch-4.MPQ", FAIL, f"expected file missing: {path}"))
+            checks.append(Check("patch-E.MPQ", FAIL, f"expected file missing: {path}"))
         elif actual != pmpq.get("sha256"):
-            checks.append(Check("patch-4.MPQ", WARN, "hash differs from install-time record (may have been replaced)"))
+            checks.append(Check("patch-E.MPQ", WARN, "hash differs from install-time record (may have been replaced)"))
         else:
-            checks.append(Check("patch-4.MPQ", PASS))
+            checks.append(Check("patch-E.MPQ", PASS))
 
     if mysql_args and characters_database:
         try:

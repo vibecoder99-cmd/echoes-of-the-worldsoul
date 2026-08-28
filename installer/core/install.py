@@ -3,7 +3,7 @@
 # See LICENSE for the full text.
 """`echoes install` -- fresh install / re-run-safe install of Echoes Core,
 optional Playerbots integration, optional Client Companion, optional
-Patch-4.MPQ.
+patch-E.MPQ.
 
 Component model (per the E2j16 release-gate resolution):
   CORE REQUIRED     -- Lua scripts, mod-echoes-stats, SQL package.
@@ -13,15 +13,23 @@ Component model (per the E2j16 release-gate resolution):
                        enabled (EchoesPlayerbots.Enable) without an
                        explicit, positive compatibility decision by the
                        caller -- this module never auto-enables it.
-  CLIENT RECOMMENDED -- Client Companion AddOn + Patch-4.MPQ, only if a
+  CLIENT RECOMMENDED -- Client Companion AddOn + patch-E.MPQ, only if a
                        client_root is supplied.
+
+patch-E.MPQ (not the old patch-4.MPQ) is Echoes' reserved client-patch
+slot -- see mpq_conflict.py's module docstring for the full rationale,
+load-support evidence, and DBC merge-conflict caveat. If a prior
+Echoes-owned patch-4.MPQ is detected (positively, by payload fingerprint,
+never by filename alone), legacy_migration.py moves it forward
+automatically as part of this same install; an unrelated patch-4.MPQ is
+left completely untouched.
 """
 
 import datetime
 import os
 import shutil
 
-from . import backup, config, discovery, hashing, manifest as manifest_mod
+from . import backup, config, discovery, hashing, legacy_migration, manifest as manifest_mod
 from . import mpq_build, mpq_conflict, prereq, sql_runner
 
 
@@ -47,7 +55,6 @@ class InstallOptions:
         client_root=None,
         vanilla_dbc_path=None,
         enable_playerbots_integration=False,
-        force_mpq_overwrite=False,
     ):
         self.azerothcore_root = azerothcore_root
         self.mysql_args = mysql_args
@@ -56,7 +63,9 @@ class InstallOptions:
         self.client_root = client_root
         self.vanilla_dbc_path = vanilla_dbc_path
         self.enable_playerbots_integration = enable_playerbots_integration
-        self.force_mpq_overwrite = force_mpq_overwrite
+        # No force-overwrite option: patch-E.MPQ collisions with a
+        # non-Echoes-owned file are always blocked in the ordinary path --
+        # see mpq_conflict.py.
 
 
 def install(opts):
@@ -186,7 +195,7 @@ def install(opts):
         "applied_at": timestamp,
     }
 
-    # --- RECOMMENDED: Client Companion + Patch-4.MPQ ---
+    # --- RECOMMENDED: Client Companion + patch-E.MPQ ---
     if opts.client_root:
         client_info = discovery.describe_client_root(opts.client_root)
         if not client_info["looks_like_compatible_335a_client"]:
@@ -211,7 +220,7 @@ def install(opts):
             "installed_at": timestamp,
         }
 
-        # Patch-4.MPQ
+        # patch-E.MPQ (Echoes' reserved slot -- see mpq_conflict.py)
         vanilla_bytes = None
         vanilla_source = None
         if opts.vanilla_dbc_path:
@@ -228,27 +237,29 @@ def install(opts):
                 )
             vanilla_source = f"extracted from client's {archive_name}"
 
-        existing_patch4 = client_info["existing_patch4_mpq"]
-        existing_sha = hashing.sha256_file(existing_patch4) if existing_patch4 else None
+        existing_patch_e = client_info["existing_patch_e_mpq"]
+        existing_sha = hashing.sha256_file(existing_patch_e) if existing_patch_e else None
         recorded_sha = m.get("patch_mpq", {}).get("sha256")
-        resolution = mpq_conflict.resolve(existing_sha, recorded_sha, opts.force_mpq_overwrite)
+        resolution = mpq_conflict.resolve(existing_sha, recorded_sha)
 
         if resolution == mpq_conflict.MpqConflictResolution.EXISTING_IS_THIRD_PARTY_BLOCKED:
             raise RuntimeError(
-                f"{existing_patch4} already exists and is not recorded as an "
-                "Echoes-generated file. Refusing to overwrite silently -- pass "
-                "--force-mpq-overwrite to replace it (it will be backed up first), "
-                "or install without --client-root and package the MPQ separately "
-                "under an alternate patch-<letter>.MPQ name."
+                f"{existing_patch_e} already exists and is not recorded as an "
+                "Echoes-generated file -- namespace collision. Echoes does not "
+                "overwrite a patch-E.MPQ it doesn't already own; there is no "
+                "--force option in the ordinary install path. Resolve the "
+                "collision manually (rename or remove the conflicting file) "
+                "before retrying, or install without --client-root to skip "
+                "client patch installation."
             )
 
-        if existing_patch4:
-            b = backup.backup_path(existing_patch4, backups_root, timestamp, "patch-4-mpq")
+        if existing_patch_e:
+            b = backup.backup_path(existing_patch_e, backups_root, timestamp, "patch-e-mpq")
             if b:
-                manifest_mod.record_backup(m, timestamp, "patch-4-mpq", b, existing_patch4)
+                manifest_mod.record_backup(m, timestamp, "patch-e-mpq", b, existing_patch_e)
 
         build_result = mpq_build.build(vanilla_bytes, os.path.join(backups_root, "mpq-build", timestamp))
-        final_mpq_path = os.path.join(opts.client_root, "Data", "patch-4.MPQ")
+        final_mpq_path = os.path.join(opts.client_root, "Data", "patch-E.MPQ")
         shutil.copy2(build_result["mpq_path"], final_mpq_path)
 
         m["patch_mpq"] = {
@@ -259,6 +270,20 @@ def install(opts):
             "vanilla_dbc_sha256": build_result["vanilla_dbc_sha256"],
             "vanilla_dbc_provenance": vanilla_source,
         }
+
+        # One-time legacy patch-4.MPQ migration -- only acts if the existing
+        # file is positively proven Echoes' own prior output; otherwise a
+        # complete no-op, and any unrelated patch-4.MPQ is never touched.
+        migration_result = legacy_migration.migrate(
+            opts.client_root, backups_root, timestamp, m["patch_mpq"]
+        )
+        m["legacy_patch4_migration"] = migration_result
+        if migration_result.get("backup_path"):
+            manifest_mod.record_backup(
+                m, timestamp, "legacy-patch-4-mpq",
+                migration_result["backup_path"],
+                os.path.join(opts.client_root, "Data", "patch-4.MPQ"),
+            )
 
     manifest_mod.save(opts.azerothcore_root, m, timestamp)
     return m

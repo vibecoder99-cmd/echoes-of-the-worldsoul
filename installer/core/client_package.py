@@ -3,8 +3,9 @@
 # See LICENSE for the full text.
 """`echoes client-package` -- produce a distributable Client Companion
 bundle from the public repo's own current source. No Blizzard client data
-included; Patch-4.MPQ is either built (if the caller supplies a vanilla
-Item.dbc) or left as an instructed manual step.
+included; patch-E.MPQ (Echoes' reserved client-patch slot -- see
+installer/core/mpq_conflict.py) is either built (if the caller supplies a
+vanilla Item.dbc) or left as an instructed manual step.
 """
 
 import os
@@ -56,10 +57,10 @@ def build(output_dir, vanilla_dbc_path=None):
     else:
         # Instructed manual step -- never bundle Blizzard data, never
         # silently skip without telling the packager why.
-        with open(os.path.join(output_dir, "BUILD-PATCH-4-MPQ.txt"), "w", encoding="utf-8") as f:
+        with open(os.path.join(output_dir, "BUILD-PATCH-E-MPQ.txt"), "w", encoding="utf-8") as f:
             f.write(
                 "No vanilla Item.dbc was supplied to client-package, so "
-                "patch-4.MPQ was not built.\n\n"
+                "patch-E.MPQ was not built.\n\n"
                 "To build it yourself:\n"
                 "  python dbc_patch/build_patch_mpq.py <your_vanilla_Item.dbc> <output_dir>\n\n"
                 "This repository ships no Blizzard client data -- the vanilla "

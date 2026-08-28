@@ -36,7 +36,6 @@ def cmd_install(args):
         client_root=args.client_root,
         vanilla_dbc_path=args.vanilla_dbc_path,
         enable_playerbots_integration=args.with_playerbots,
-        force_mpq_overwrite=args.force_mpq_overwrite,
     )
     m = install.install(opts)
     print(json.dumps(m, indent=2))
@@ -110,7 +109,9 @@ def build_parser():
     sp.add_argument("--client-root", default=None)
     sp.add_argument("--vanilla-dbc-path", default=None)
     sp.add_argument("--with-playerbots", action="store_true")
-    sp.add_argument("--force-mpq-overwrite", action="store_true")
+    # No --force-mpq-overwrite: a patch-E.MPQ collision with a
+    # non-Echoes-owned file is always blocked in the ordinary install
+    # path -- see installer/core/mpq_conflict.py.
     sp.set_defaults(func=cmd_install)
 
     sp = sub.add_parser("verify")

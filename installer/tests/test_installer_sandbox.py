@@ -24,7 +24,7 @@ import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from core import config, discovery, install, mpq_conflict, prereq, verify  # noqa: E402
+from core import config, discovery, install, legacy_migration, mpq_conflict, prereq, verify  # noqa: E402
 
 FAILURES = []
 
@@ -115,15 +115,118 @@ def test_prereq_mod_ale():
 
 
 def test_mpq_conflict_policy():
-    print("test_mpq_conflict_policy")
+    print("test_mpq_conflict_policy (patch-E.MPQ namespace, no --force in the ordinary path)")
     check("no existing file -> NO_EXISTING_FILE",
-          mpq_conflict.resolve(None, None, False) == mpq_conflict.MpqConflictResolution.NO_EXISTING_FILE)
+          mpq_conflict.resolve(None, None) == mpq_conflict.MpqConflictResolution.NO_EXISTING_FILE)
     check("existing matches manifest -> EXISTING_IS_OURS",
-          mpq_conflict.resolve("abc", "abc", False) == mpq_conflict.MpqConflictResolution.EXISTING_IS_OURS)
-    check("existing unknown, no force -> BLOCKED",
-          mpq_conflict.resolve("abc", None, False) == mpq_conflict.MpqConflictResolution.EXISTING_IS_THIRD_PARTY_BLOCKED)
-    check("existing unknown, forced -> FORCED",
-          mpq_conflict.resolve("abc", None, True) == mpq_conflict.MpqConflictResolution.EXISTING_IS_THIRD_PARTY_FORCED)
+          mpq_conflict.resolve("abc", "abc") == mpq_conflict.MpqConflictResolution.EXISTING_IS_OURS)
+    check("existing unknown -> BLOCKED (no force override exists)",
+          mpq_conflict.resolve("abc", None) == mpq_conflict.MpqConflictResolution.EXISTING_IS_THIRD_PARTY_BLOCKED)
+    check("resolve() takes no force_overwrite parameter",
+          "force_overwrite" not in mpq_conflict.resolve.__code__.co_varnames)
+
+
+def test_legacy_patch4_identification():
+    print("test_legacy_patch4_identification (byte-exact fingerprint, not filename)")
+    tmp = tempfile.mkdtemp(prefix="echoes-mpq-")
+    try:
+        # Build a real Echoes payload against the known-good proxy vanilla
+        # DBC fixture the E2j16 MPQ reproducibility checkpoint already
+        # established, if it's still present in the session scratch area;
+        # otherwise synthesize a minimal but byte-exact fixture instead so
+        # this test has no external dependency.
+        import sys as _sys
+        _sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "dbc_patch"))
+        from mpq_writer import write_single_file_mpq
+
+        # Minimal vanilla-shaped DBC: header + the two Echoes records
+        # inserted via patch_item_dbc, run for real (not hand-built) so
+        # the fingerprint check is exercised against genuine output.
+        from patch_item_dbc import patch as patch_item_dbc
+
+        vanilla_path = os.path.join(tmp, "vanilla.dbc")
+        patched_path = os.path.join(tmp, "patched.dbc")
+        # A syntactically valid empty vanilla Item.dbc: header only, zero
+        # records, 1-byte string block.
+        with open(vanilla_path, "wb") as f:
+            import struct
+            f.write(struct.pack("<4sIIII", b"WDBC", 0, 8, 32, 1))
+            f.write(b"\x00")
+        ok = patch_item_dbc(vanilla_path, patched_path)
+        check("fixture DBC patched successfully", ok is True)
+
+        with open(patched_path, "rb") as f:
+            patched_bytes = f.read()
+
+        genuine_path = os.path.join(tmp, "patch-4.MPQ")
+        write_single_file_mpq(genuine_path, "DBFilesClient\\Item.dbc", patched_bytes)
+        check("genuine Echoes payload identified as legacy patch-4",
+              mpq_conflict.identify_legacy_echoes_patch4(genuine_path) is True)
+
+        foreign_path = os.path.join(tmp, "foreign-patch-4.MPQ")
+        write_single_file_mpq(foreign_path, "DBFilesClient\\Item.dbc", b"not an Echoes payload at all")
+        check("foreign payload NOT identified as Echoes-owned",
+              mpq_conflict.identify_legacy_echoes_patch4(foreign_path) is False)
+
+        check("nonexistent file NOT identified as Echoes-owned (no exception)",
+              mpq_conflict.identify_legacy_echoes_patch4(os.path.join(tmp, "missing.MPQ")) is False)
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_patch_e_build_and_legacy_migration():
+    print("test_patch_e_build_and_legacy_migration (scratch client layout)")
+    client_root = make_scratch_client_root(compatible=True)
+    try:
+        data_dir = os.path.join(client_root, "Data")
+
+        # Build a genuine Echoes payload (same fixture approach as above)
+        # and place it as an existing "legacy" patch-4.MPQ.
+        import sys as _sys
+        _sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "dbc_patch"))
+        from mpq_writer import write_single_file_mpq
+        from patch_item_dbc import patch as patch_item_dbc
+        import struct
+
+        vanilla_path = os.path.join(client_root, "vanilla.dbc")
+        patched_path = os.path.join(client_root, "patched.dbc")
+        with open(vanilla_path, "wb") as f:
+            f.write(struct.pack("<4sIIII", b"WDBC", 0, 8, 32, 1))
+            f.write(b"\x00")
+        patch_item_dbc(vanilla_path, patched_path)
+        with open(patched_path, "rb") as f:
+            patched_bytes = f.read()
+        legacy_path = os.path.join(data_dir, "patch-4.MPQ")
+        write_single_file_mpq(legacy_path, "DBFilesClient\\Item.dbc", patched_bytes)
+
+        # Now build patch-E.MPQ (the new slot) from the same payload and
+        # place it, simulating what install.install() would have just done.
+        new_path = os.path.join(data_dir, "patch-E.MPQ")
+        write_single_file_mpq(new_path, "DBFilesClient\\Item.dbc", patched_bytes)
+
+        import hashlib
+        new_sha = hashlib.sha256(open(new_path, "rb").read()).hexdigest()
+
+        backups_root = os.path.join(client_root, "backups")
+        result = legacy_migration.migrate(
+            client_root, backups_root, "20260101T000000Z",
+            {"mpq_sha256": new_sha},
+        )
+        check("legacy migration action=migrated", result["action"] == "migrated")
+        check("old patch-4.MPQ removed after successful verification", not os.path.isfile(legacy_path))
+        check("new patch-E.MPQ still present", os.path.isfile(new_path))
+        check("backup of old patch-4.MPQ was made", os.path.isfile(result["backup_path"]))
+
+        # An unrelated patch-4.MPQ (not Echoes-owned) must be left alone.
+        write_single_file_mpq(legacy_path, "SomeOther\\File.dat", b"not ours")
+        result2 = legacy_migration.migrate(
+            client_root, backups_root, "20260101T000001Z",
+            {"mpq_sha256": new_sha},
+        )
+        check("unrelated patch-4.MPQ: action=none", result2["action"] == "none")
+        check("unrelated patch-4.MPQ left untouched", os.path.isfile(legacy_path))
+    finally:
+        shutil.rmtree(client_root)
 
 
 def test_config_materialize():
@@ -236,6 +339,8 @@ if __name__ == "__main__":
     test_discovery_client_root()
     test_prereq_mod_ale()
     test_mpq_conflict_policy()
+    test_legacy_patch4_identification()
+    test_patch_e_build_and_legacy_migration()
     test_config_materialize()
     test_full_install_and_verify_sandbox()
 

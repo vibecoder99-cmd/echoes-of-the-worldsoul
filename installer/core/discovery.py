@@ -54,6 +54,11 @@ def describe_client_root(path):
     data_dir = os.path.join(path, "Data")
     wow_exe = os.path.join(path, "Wow.exe")
     common_mpq = os.path.join(data_dir, "common.MPQ")
+    # patch-E.MPQ is Echoes' own reserved slot (see mpq_conflict.py).
+    # patch-4.MPQ is tracked separately, ONLY to support the one-time
+    # legacy-install migration (legacy_migration.py) -- it is never
+    # Echoes' own target filename for a new install.
+    existing_patch_e = os.path.join(data_dir, "patch-E.MPQ")
     existing_patch4 = os.path.join(data_dir, "patch-4.MPQ")
     addons_dir = os.path.join(path, "Interface", "AddOns")
 
@@ -65,7 +70,8 @@ def describe_client_root(path):
         "looks_like_compatible_335a_client": (
             os.path.isfile(wow_exe) and os.path.isfile(common_mpq)
         ),
-        "existing_patch4_mpq": existing_patch4 if os.path.isfile(existing_patch4) else None,
+        "existing_patch_e_mpq": existing_patch_e if os.path.isfile(existing_patch_e) else None,
+        "existing_legacy_patch4_mpq": existing_patch4 if os.path.isfile(existing_patch4) else None,
         "addons_dir": addons_dir if os.path.isdir(addons_dir) else None,
     }
     return result

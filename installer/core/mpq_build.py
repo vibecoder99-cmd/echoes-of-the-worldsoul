@@ -1,8 +1,13 @@
 # Copyright (C) 2025-2026 vibecoder99
 # Licensed under the GNU General Public License v3.0 or later.
 # See LICENSE for the full text.
-"""Patch-4.MPQ build pipeline: vanilla Item.dbc discovery/extraction ->
+"""patch-E.MPQ build pipeline: vanilla Item.dbc discovery/extraction ->
 patch_item_dbc.py -> mpq_writer.py.
+
+Named patch-E.MPQ ("E" for Echoes), not the old patch-4.MPQ -- see
+mpq_conflict.py's module docstring for the namespace-collision rationale
+and load-support evidence. legacy_migration.py handles moving a prior
+Echoes-owned patch-4.MPQ install forward to this new slot.
 
 This module contains NO DBC-editing logic and NO MPQ-archive logic of its
 own -- both live in dbc_patch/ (this repo's canonical, already-tracked
@@ -92,7 +97,7 @@ def build(vanilla_dbc_bytes, output_dir):
     os.makedirs(output_dir, exist_ok=True)
     vanilla_path = os.path.join(output_dir, "vanilla_Item.dbc")
     patched_path = os.path.join(output_dir, "Item.dbc")
-    mpq_path = os.path.join(output_dir, "patch-4.MPQ")
+    mpq_path = os.path.join(output_dir, "patch-E.MPQ")
 
     with open(vanilla_path, "wb") as f:
         f.write(vanilla_dbc_bytes)

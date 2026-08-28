@@ -8,7 +8,7 @@ E2J13-INSTALL-UPGRADE-UNINSTALL-MODEL.md): standard uninstall removes only
 manifest-recorded Echoes-owned files/directories (lua_scripts contents
 that match the manifest's file list, modules/mod-echoes-stats,
 modules/mod-echoes-playerbots if present, the Client Companion AddOn
-directory, the generated patch-4.MPQ only if its hash matches the
+directory, the generated patch-E.MPQ only if its hash matches the
 manifest's recorded value) and NEVER touches mod-ale, mod-playerbots, any
 other AzerothCore module, or any `ap_*` database table -- database
 retention is the explicit default per the frozen design (15 of 19 tables
