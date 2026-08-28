@@ -146,6 +146,34 @@ prints `[PASS]` / `[FAIL]` for each one. Do not use the output file if any check
 
 ---
 
+## Packaging the Patched DBC into a Client Patch
+
+`mpq_writer.py` (this directory) packages a single file into a minimal,
+uncompressed MPQ v1 archive matching this project's `patch-4.MPQ` shape,
+as a scriptable alternative to a manual pass with an MPQ editor.
+`build_patch_mpq.py` chains it with `patch_item_dbc.py`:
+
+```
+python build_patch_mpq.py <vanilla_Item.dbc> <output_dir>
+```
+
+This produces `<output_dir>/Item.dbc` (the patched DBC, for inspection)
+and `<output_dir>/patch-4.MPQ` (the archive to copy into the client's
+`Data\` folder). Neither script fetches, embeds, or ships any Blizzard
+client data — the vanilla `Item.dbc` is required input, supplied by
+whoever runs the build from their own legally-owned WoW 3.3.5a (build
+12340) client.
+
+**Extracting a vanilla `Item.dbc` from your own client is not yet
+automated by any tool in this repository.** Depending on the client
+package, `Item.dbc` may already sit as a loose file under a `dbc\`
+directory, or it may need extracting from a stock archive (typically
+`common.MPQ` or `common-2.MPQ`) with a general-purpose MPQ tool such as
+Ladik's MPQ Editor. Building that extraction step into this project's own
+tooling — without hardcoding any one operator's client path — is
+explicitly deferred to the installer implementation phase, not solved
+here.
+
 ## Known Failure Mode
 
 The crash that inspired these notes: appending new DBC records after EOF (outside
