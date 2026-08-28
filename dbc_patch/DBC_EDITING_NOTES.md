@@ -149,7 +149,7 @@ prints `[PASS]` / `[FAIL]` for each one. Do not use the output file if any check
 ## Packaging the Patched DBC into a Client Patch
 
 `mpq_writer.py` (this directory) packages a single file into a minimal,
-uncompressed MPQ v1 archive matching this project's `patch-4.MPQ` shape,
+uncompressed MPQ v1 archive matching this project's `patch-E.MPQ` shape,
 as a scriptable alternative to a manual pass with an MPQ editor.
 `build_patch_mpq.py` chains it with `patch_item_dbc.py`:
 
@@ -158,11 +158,15 @@ python build_patch_mpq.py <vanilla_Item.dbc> <output_dir>
 ```
 
 This produces `<output_dir>/Item.dbc` (the patched DBC, for inspection)
-and `<output_dir>/patch-4.MPQ` (the archive to copy into the client's
-`Data\` folder). Neither script fetches, embeds, or ships any Blizzard
-client data — the vanilla `Item.dbc` is required input, supplied by
-whoever runs the build from their own legally-owned WoW 3.3.5a (build
-12340) client.
+and `<output_dir>/patch-E.MPQ` (the archive to copy into the client's
+`Data\` folder — "E" for Echoes; not `patch-4.MPQ`, a common first
+custom-patch slot other mods also reach for. See
+`installer/core/mpq_conflict.py` for the full rationale and one caveat
+this rename does not solve: a collision with some other mod's own
+later-loaded patch that also replaces `DBFilesClient\Item.dbc`).
+Neither script fetches, embeds, or ships any Blizzard client data — the
+vanilla `Item.dbc` is required input, supplied by whoever runs the build
+from their own legally-owned WoW 3.3.5a (build 12340) client.
 
 **Extracting a vanilla `Item.dbc` from your own client is not yet
 automated by any tool in this repository.** Depending on the client
