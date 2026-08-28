@@ -42,6 +42,10 @@ HANDOFF.md
 auralab_dump.txt
 *.tmp
 *.old
+__pycache__/
+*.pyc
+echoes-install-manifest.json
+echoes-installer-backups/
 
 # OS/editor junk
 .DS_Store
