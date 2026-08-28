@@ -262,47 +262,57 @@ def test_config_materialize():
         shutil.rmtree(tmp)
 
 
-def test_full_install_and_verify_sandbox():
-    print("test_full_install_and_verify_sandbox (requires ECHOES_TEST_MYSQL_* env vars)")
+def _mysql_test_args():
     host = os.environ.get("ECHOES_TEST_MYSQL_HOST")
     if not host:
-        print("  [SKIP] no disposable MySQL configured via ECHOES_TEST_MYSQL_* env vars")
-        return
-
-    mysql_args = [
+        return None
+    return [
         "-u", os.environ.get("ECHOES_TEST_MYSQL_USER", "root"),
         f"-p{os.environ.get('ECHOES_TEST_MYSQL_PASSWORD', '')}",
         "-h", host,
         "-P", os.environ.get("ECHOES_TEST_MYSQL_PORT", "3306"),
     ]
 
-    # A real install always targets an existing AzerothCore world database
-    # that already has item_template (populated by AzerothCore's own world
-    # DB import, which this installer does not perform). Stub the minimal
-    # shape here so world_items.sql has something real to guard/insert
-    # into -- this mirrors the exact stub used during the E2j16 SQL
-    # reproducibility checkpoint.
-    stub_sql = """
-    CREATE TABLE IF NOT EXISTS item_template (
-        entry INT UNSIGNED NOT NULL PRIMARY KEY, class INT NOT NULL DEFAULT 0,
-        subclass INT NOT NULL DEFAULT 0, SoundOverrideSubclass INT NOT NULL DEFAULT -1,
-        name VARCHAR(255) NOT NULL DEFAULT '', displayid INT NOT NULL DEFAULT 0,
-        Quality TINYINT NOT NULL DEFAULT 0, BuyCount INT NOT NULL DEFAULT 1,
-        BuyPrice INT NOT NULL DEFAULT 0, SellPrice INT NOT NULL DEFAULT 0,
-        InventoryType INT NOT NULL DEFAULT 0, AllowableClass INT NOT NULL DEFAULT -1,
-        AllowableRace INT NOT NULL DEFAULT -1, ItemLevel INT NOT NULL DEFAULT 0,
-        RequiredLevel INT NOT NULL DEFAULT 0, stackable INT NOT NULL DEFAULT 1,
-        maxcount INT NOT NULL DEFAULT 0, spellid_1 INT NOT NULL DEFAULT 0,
-        spelltrigger_1 INT NOT NULL DEFAULT 0, spellcharges_1 INT NOT NULL DEFAULT 0,
-        spellcooldown_1 INT NOT NULL DEFAULT -1, spellcategory_1 INT NOT NULL DEFAULT 0,
-        spellcategorycooldown_1 INT NOT NULL DEFAULT -1, spellid_2 INT NOT NULL DEFAULT 0,
-        spellid_3 INT NOT NULL DEFAULT 0, spellid_4 INT NOT NULL DEFAULT 0,
-        spellid_5 INT NOT NULL DEFAULT 0, delay INT NOT NULL DEFAULT 0,
-        bonding INT NOT NULL DEFAULT 0, description VARCHAR(255) NOT NULL DEFAULT '',
-        RequiredDisenchantSkill INT NOT NULL DEFAULT -1, Material INT NOT NULL DEFAULT 0
-    ) ENGINE=InnoDB;
-    """
-    subprocess.run(["mysql", *mysql_args, "acore_world", "-e", stub_sql], check=True)
+
+_ITEM_TEMPLATE_STUB_SQL = """
+CREATE TABLE IF NOT EXISTS item_template (
+    entry INT UNSIGNED NOT NULL PRIMARY KEY, class INT NOT NULL DEFAULT 0,
+    subclass INT NOT NULL DEFAULT 0, SoundOverrideSubclass INT NOT NULL DEFAULT -1,
+    name VARCHAR(255) NOT NULL DEFAULT '', displayid INT NOT NULL DEFAULT 0,
+    Quality TINYINT NOT NULL DEFAULT 0, BuyCount INT NOT NULL DEFAULT 1,
+    BuyPrice INT NOT NULL DEFAULT 0, SellPrice INT NOT NULL DEFAULT 0,
+    InventoryType INT NOT NULL DEFAULT 0, AllowableClass INT NOT NULL DEFAULT -1,
+    AllowableRace INT NOT NULL DEFAULT -1, ItemLevel INT NOT NULL DEFAULT 0,
+    RequiredLevel INT NOT NULL DEFAULT 0, stackable INT NOT NULL DEFAULT 1,
+    maxcount INT NOT NULL DEFAULT 0, spellid_1 INT NOT NULL DEFAULT 0,
+    spelltrigger_1 INT NOT NULL DEFAULT 0, spellcharges_1 INT NOT NULL DEFAULT 0,
+    spellcooldown_1 INT NOT NULL DEFAULT -1, spellcategory_1 INT NOT NULL DEFAULT 0,
+    spellcategorycooldown_1 INT NOT NULL DEFAULT -1, spellid_2 INT NOT NULL DEFAULT 0,
+    spellid_3 INT NOT NULL DEFAULT 0, spellid_4 INT NOT NULL DEFAULT 0,
+    spellid_5 INT NOT NULL DEFAULT 0, delay INT NOT NULL DEFAULT 0,
+    bonding INT NOT NULL DEFAULT 0, description VARCHAR(255) NOT NULL DEFAULT '',
+    RequiredDisenchantSkill INT NOT NULL DEFAULT -1, Material INT NOT NULL DEFAULT 0
+) ENGINE=InnoDB;
+"""
+
+
+def _reset_disposable_databases(mysql_args):
+    subprocess.run(["mysql", *mysql_args, "-e",
+                     "DROP DATABASE IF EXISTS acore_characters; CREATE DATABASE acore_characters;"],
+                    check=True)
+    subprocess.run(["mysql", *mysql_args, "-e",
+                     "DROP DATABASE IF EXISTS acore_world; CREATE DATABASE acore_world;"],
+                    check=True)
+    subprocess.run(["mysql", *mysql_args, "acore_world", "-e", _ITEM_TEMPLATE_STUB_SQL], check=True)
+
+
+def test_full_install_and_verify_sandbox():
+    print("test_full_install_and_verify_sandbox (requires ECHOES_TEST_MYSQL_* env vars)")
+    mysql_args = _mysql_test_args()
+    if mysql_args is None:
+        print("  [SKIP] no disposable MySQL configured via ECHOES_TEST_MYSQL_* env vars")
+        return
+    _reset_disposable_databases(mysql_args)
 
     ac_root = make_scratch_azerothcore_root(with_mod_ale=True, with_mod_playerbots=False)
     try:
@@ -334,6 +344,214 @@ def test_full_install_and_verify_sandbox():
         shutil.rmtree(ac_root, ignore_errors=True)
 
 
+def test_safety_containment():
+    print("test_safety_containment (path traversal / symlink escape)")
+    from core import safety
+
+    root = tempfile.mkdtemp(prefix="echoes-safety-")
+    outside = tempfile.mkdtemp(prefix="echoes-outside-")
+    try:
+        inside = os.path.join(root, "a", "b.txt")
+        os.makedirs(os.path.dirname(inside))
+        open(inside, "w").close()
+        check("contained path accepted", safety.is_safe_to_delete(inside, root) is True)
+
+        traversal = os.path.join(root, "..", os.path.basename(outside), "evil.txt")
+        check("path-traversal target rejected", safety.is_safe_to_delete(traversal, root) is False)
+
+        check("root itself rejected as a target", safety.is_safe_to_delete(root, root) is False)
+
+        # Symlink escape: a symlink inside root pointing outside it.
+        link_path = os.path.join(root, "escape_link")
+        target_file = os.path.join(outside, "real.txt")
+        open(target_file, "w").close()
+        try:
+            os.symlink(target_file, link_path)
+            symlink_supported = True
+        except (OSError, NotImplementedError):
+            symlink_supported = False
+
+        if symlink_supported:
+            try:
+                safety.safe_remove_file(link_path, root)
+                check("symlink escape rejected by safe_remove_file", False)
+            except safety.UnsafePathError:
+                check("symlink escape rejected by safe_remove_file", True)
+            check("symlink target outside root was NOT deleted", os.path.isfile(target_file))
+        else:
+            print("  [SKIP] symlink creation not permitted in this environment (Windows without dev mode/admin)")
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+        shutil.rmtree(outside, ignore_errors=True)
+
+
+def test_repair_and_uninstall_and_upgrade():
+    print("test_repair_and_uninstall_and_upgrade (requires ECHOES_TEST_MYSQL_* env vars)")
+    mysql_args = _mysql_test_args()
+    if mysql_args is None:
+        print("  [SKIP] no disposable MySQL configured via ECHOES_TEST_MYSQL_* env vars")
+        return
+    _reset_disposable_databases(mysql_args)
+
+    from core import repair as repair_mod
+    from core import uninstall as uninstall_mod
+    from core import upgrade as upgrade_mod
+    from core import manifest as manifest_mod
+
+    # --- Legacy (pre-manifest) upgrade scenario ---
+    ac_root = make_scratch_azerothcore_root(with_mod_ale=True, with_mod_playerbots=True)
+    try:
+        legacy_lua_dir = os.path.join(ac_root, "lua_scripts")
+        os.makedirs(legacy_lua_dir)
+        with open(os.path.join(legacy_lua_dir, "ap_core.lua"), "w") as f:
+            f.write("-- v1.6.0-style placeholder content, no manifest ever existed\n")
+        check("legacy install has no manifest yet", manifest_mod.load(ac_root) is None)
+
+        opts = install.InstallOptions(
+            azerothcore_root=ac_root, mysql_args=mysql_args,
+            characters_database="acore_characters", world_database="acore_world",
+        )
+        upgrade_result = upgrade_mod.upgrade(opts, target_product_version="1.7.1")
+        check("upgrade: previous_manifest_present False for legacy install",
+              upgrade_result["previous_manifest_present"] is False)
+        check("upgrade: target_version recorded", upgrade_result["target_version"] == "1.7.1")
+        with open(os.path.join(legacy_lua_dir, "ap_core.lua")) as f:
+            content = f.read()
+        check("upgrade: legacy placeholder content replaced with current source",
+              "v1.6.0-style placeholder" not in content)
+        m = manifest_mod.load(ac_root)
+        check("upgrade: manifest now exists and records product_version",
+              m is not None and m.get("product_version") == "1.7.1")
+
+        # --- Playerbots matrix: present + with_playerbots, no confirmation -> disabled ---
+        opts_pb = install.InstallOptions(
+            azerothcore_root=ac_root, mysql_args=mysql_args,
+            characters_database="acore_characters", world_database="acore_world",
+            enable_playerbots_integration=True,
+        )
+        m_pb = install.install(opts_pb)
+        check("playerbots present, requested, unconfirmed -> module installed",
+              m_pb["components"]["mod_echoes_playerbots"]["enabled"] is True)
+        check("playerbots present, requested, unconfirmed -> integration NOT enabled",
+              m_pb["playerbots_integration"]["enabled"] is False)
+        conf_pb = open(os.path.join(ac_root, "etc", "modules", "mod_echoes_playerbots.conf")).read()
+        check("playerbots conf: Enable=0 when not confirmed", "EchoesPlayerbots.Enable = 0" in conf_pb)
+
+        # --- Playerbots matrix: present + explicit compatibility confirmation -> enabled ---
+        opts_pb_confirmed = install.InstallOptions(
+            azerothcore_root=ac_root, mysql_args=mysql_args,
+            characters_database="acore_characters", world_database="acore_world",
+            enable_playerbots_integration=True,
+            confirm_playerbots_compatible=True,
+        )
+        m_pb2 = install.install(opts_pb_confirmed)
+        check("playerbots present, confirmed -> integration enabled",
+              m_pb2["playerbots_integration"]["enabled"] is True)
+        check("playerbots present, confirmed -> compatibility_confirmed recorded",
+              m_pb2["playerbots_integration"]["compatibility_confirmed"] is True)
+
+        # --- Repair: missing file restored automatically ---
+        removed_file = os.path.join(ac_root, "lua_scripts", "ap_events.lua")
+        os.remove(removed_file)
+        check("repair fixture: file actually missing before repair", not os.path.isfile(removed_file))
+        report = repair_mod.repair(ac_root, restore_mismatched=False)
+        check("repair: missing file restored", any("ap_events.lua" in x for x in report.restored_missing))
+        check("repair: file exists again after repair", os.path.isfile(removed_file))
+
+        # --- Repair: mismatched file reported but NOT restored by default ---
+        tuned_file = os.path.join(ac_root, "lua_scripts", "ap_pvp.lua")
+        with open(tuned_file, "a") as f:
+            f.write("\n-- operator customization, should not be silently clobbered\n")
+        report2 = repair_mod.repair(ac_root, restore_mismatched=False)
+        check("repair: mismatched file reported, not restored by default",
+              any("ap_pvp.lua" in x for x in report2.reported_mismatched))
+        with open(tuned_file) as f:
+            check("repair: customization survives default repair",
+                  "operator customization" in f.read())
+
+        # --- Repair: mismatched file restored when explicitly requested ---
+        report3 = repair_mod.repair(ac_root, restore_mismatched=True)
+        check("repair: mismatched file restored when explicitly requested",
+              any("ap_pvp.lua" in x for x in report3.restored_mismatched))
+        with open(tuned_file) as f:
+            check("repair: customization gone after explicit restore",
+                  "operator customization" not in f.read())
+
+        # --- Uninstall: owned files removed, mod-ale/mod-playerbots untouched, DB retained ---
+        ale_marker = os.path.join(ac_root, "modules", "mod-ale")
+        pb_marker = os.path.join(ac_root, "modules", "mod-playerbots")
+        uninstall_report = uninstall_mod.uninstall(ac_root)
+        check("uninstall: core_lua files removed",
+              any(x.startswith("core_lua:") for x in uninstall_report.removed))
+        check("uninstall: mod-echoes-stats component removed", "mod_echoes_stats" in uninstall_report.removed)
+        check("uninstall: mod-echoes-stats directory gone",
+              not os.path.isdir(os.path.join(ac_root, "modules", "mod-echoes-stats")))
+        check("uninstall: mod-ale untouched", os.path.isdir(ale_marker))
+        check("uninstall: mod-playerbots untouched", os.path.isdir(pb_marker))
+        check("uninstall: database action is retention, not deletion",
+              "retained" in uninstall_report.database_action)
+
+        version_row = subprocess.run(
+            ["mysql", *mysql_args, "acore_characters", "-N", "-e",
+             "SELECT version FROM ap_schema_version WHERE id=1"],
+            capture_output=True, text=True, check=True,
+        )
+        check("uninstall: ap_schema_version row still present (DB retained)",
+              version_row.stdout.strip() != "")
+    finally:
+        shutil.rmtree(ac_root, ignore_errors=True)
+
+
+def test_partial_install_failure_recovery():
+    print("test_partial_install_failure_recovery (requires ECHOES_TEST_MYSQL_* env vars)")
+    mysql_args = _mysql_test_args()
+    if mysql_args is None:
+        print("  [SKIP] no disposable MySQL configured via ECHOES_TEST_MYSQL_* env vars")
+        return
+    _reset_disposable_databases(mysql_args)
+
+    from core import manifest as manifest_mod
+
+    ac_root = make_scratch_azerothcore_root(with_mod_ale=True, with_mod_playerbots=False)
+    try:
+        # Force the SQL step to fail by pointing at a world database that
+        # does not exist -- lua_scripts and mod-echoes-stats should still
+        # get copied and checkpointed before this raises.
+        opts = install.InstallOptions(
+            azerothcore_root=ac_root, mysql_args=mysql_args,
+            characters_database="acore_characters",
+            world_database="acore_world_does_not_exist",
+        )
+        raised = False
+        try:
+            install.install(opts)
+        except Exception:
+            raised = True
+        check("induced SQL failure actually raises", raised is True)
+
+        m = manifest_mod.load(ac_root)
+        check("partial-install manifest was still written (progressive checkpointing)", m is not None)
+        check("partial-install: core_lua was recorded despite later failure",
+              m is not None and m.get("components", {}).get("core_lua", {}).get("enabled") is True)
+        check("partial-install: mod_echoes_stats was recorded despite later failure",
+              m is not None and m.get("components", {}).get("mod_echoes_stats", {}).get("enabled") is True)
+        check("partial-install: files are actually present on disk",
+              os.path.isdir(os.path.join(ac_root, "lua_scripts")) and
+              os.path.isdir(os.path.join(ac_root, "modules", "mod-echoes-stats")))
+
+        # Recovery: a subsequent correctly-targeted install should succeed
+        # fully from this partial state.
+        opts_fixed = install.InstallOptions(
+            azerothcore_root=ac_root, mysql_args=mysql_args,
+            characters_database="acore_characters", world_database="acore_world",
+        )
+        m2 = install.install(opts_fixed)
+        check("recovery install succeeds after fixing the bad target", m2 is not None)
+        check("recovery install: sql applied", len(m2.get("sql", {}).get("schema_files_applied", [])) == 6)
+    finally:
+        shutil.rmtree(ac_root, ignore_errors=True)
+
+
 if __name__ == "__main__":
     test_discovery_azerothcore_root()
     test_discovery_client_root()
@@ -342,7 +560,10 @@ if __name__ == "__main__":
     test_legacy_patch4_identification()
     test_patch_e_build_and_legacy_migration()
     test_config_materialize()
+    test_safety_containment()
     test_full_install_and_verify_sandbox()
+    test_repair_and_uninstall_and_upgrade()
+    test_partial_install_failure_recovery()
 
     print()
     if FAILURES:
