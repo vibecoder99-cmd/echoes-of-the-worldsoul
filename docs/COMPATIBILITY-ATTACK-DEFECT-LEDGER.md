@@ -38,12 +38,19 @@ docs/polish/minor hardening. POST-2.0 — explicitly deferred, not a defect.
   file was already reviewed as harmless-but-unwanted.
 - **Release blocking?** Not P0/P1, but real and should be fixed before
   claiming upgrade correctness for public release.
-- **Recommended fix:** Make the Lua sync step manifest-aware on upgrade:
-  when a previous install manifest lists Echoes-owned Lua files that are
-  no longer present in current source, remove them explicitly (with
-  backup), rather than doing a blanket directory wipe (which would be
-  unsafe if `lua_scripts/` is ever shared with non-Echoes Eluna scripts).
-- **Status:** OPEN — not fixed this pass.
+- **Fix:** `installer/core/legacy_retirement.py` (new) — positive-
+  identity-gated retirement: a legacy Lua filename must ALSO match a
+  stable content-signature substring before removal, never filename
+  alone. `retire_legacy_lua()` is invoked from `install.py` immediately
+  after the core-Lua sync/checkpoint. Matched files are backed up (not
+  deleted outright) via the existing `backup.py` path before removal.
+- **Status:** FIXED + VERIFIED. Verified by
+  `installer/tests/test_legacy_upgrade_convergence.py`
+  (`test_legacy_release_converges_to_current`), which upgrades a real
+  exported `v1.6.0-rc1` tree and asserts `ap_gm_aether.lua` is retired,
+  backed up, and absent afterward, and that the post-upgrade Lua file
+  set is byte-identical to a fresh install (28/28 files). 13/13 assertions
+  passing at time of fix.
 
 ### DEFECT-02 — Upgrade from the actual v1.6.0-rc1 layout leaves the old `modules/mod-attunement-plus/` module directory behind entirely
 
@@ -66,11 +73,30 @@ docs/polish/minor hardening. POST-2.0 — explicitly deferred, not a defect.
 - **Release blocking?** Not P0/P1 (no functional conflict — the old
   module doesn't collide with the new ones under different names), but
   a real hygiene/completeness gap in the upgrade path specifically.
-- **Recommended fix:** `upgrade()` should detect and report (at minimum)
-  the presence of `modules/mod-attunement-plus/` when upgrading from a
-  pre-manifest legacy layout, and offer to remove it (with backup) as an
-  explicit, reported step — not silently.
-- **Status:** OPEN — not fixed this pass.
+- **Fix:** Same `legacy_retirement.py` module —
+  `retire_legacy_modules()` requires both a positive content-identity
+  match (required files present + stable content-signature substring)
+  AND confirmation that the declared replacement component
+  (`mod_echoes_stats`) is already installed in the same operation before
+  removing the old module directory (with backup). Invoked from
+  `install.py` immediately after the Playerbots integration block.
+- **Bug found while building this fix (recorded, not a separate
+  defect):** the retirement rule's `superseded_by` list was initially
+  written as `["mod-echoes-stats"]` (hyphenated, matching the module
+  directory naming convention), but `install.py` passes
+  `currently_installed_components=list(m["components"].keys())`, and
+  manifest component keys use underscore naming
+  (`"mod_echoes_stats"`). The mismatch made the retirement logic always
+  report the replacement as "not yet installed" even when it was,
+  silently preventing removal. Fixed by correcting the list to
+  `["mod_echoes_stats"]`, with a code comment documenting the
+  naming-convention distinction to prevent recurrence. Caught before
+  release by the regression test, not by inspection alone.
+- **Status:** FIXED + VERIFIED. Verified by the same
+  `test_legacy_upgrade_convergence.py` test: confirms
+  `modules/mod-attunement-plus/` is retired, backed up, and physically
+  absent after upgrade, and that `mod_echoes_stats` is present in both
+  the fresh-install and upgraded trees.
 
 ### DEFECT-03 (minor) — `sql_runner.py` imports `glob` without using it
 
@@ -97,10 +123,32 @@ docs/polish/minor hardening. POST-2.0 — explicitly deferred, not a defect.
   present (and already proven working) in the live server. This is a
   deliberate scoping decision, not a skipped attack.
 - **BOM/encoding** (§10): `zz_eluna_probe.lua`'s UTF-8 BOM is confirmed
-  pre-existing in WSL source, unaffected by packaging. Actual Lua 5.2
-  parser behavior against it remains **UNPROVEN** (deferred to
-  Compatibility Verification — no Lua 5.2 interpreter was available in
-  this environment to test directly).
+  pre-existing in WSL source, unaffected by packaging. **Resolved this
+  pass: BOM ACCEPTED, not a defect.** No Lua 5.2 interpreter exists in
+  this environment; used a real Lua 5.4 interpreter
+  (`C:\...\Programs\Lua\bin\lua.exe`/`luac.exe`, v5.4.6) as a proxy,
+  since the BOM-skip logic in `lauxlib.c`'s `luaL_loadfilex` was
+  introduced in Lua 5.2 and is unchanged through 5.2/5.3/5.4 — the exact
+  window mod-ale's `LUA_VERSION=lua52` build target falls inside. Both
+  `luac -p` (syntax check, exit 0) and `lua -e "loadfile(...)"`
+  (returned a valid loaded function object, not `nil`+error) succeeded
+  directly against the file. This also explains the earlier
+  E2j13-era `luac5.1`-based failure: Lua 5.1 predates the BOM-skip
+  feature entirely, so a 5.1 parser choking on this file was expected
+  and is not evidence of a real-runtime problem. **Caveat honestly
+  carried forward:** this proves the standard Lua auxiliary-library
+  loader accepts the BOM; it does not by itself prove a fully custom
+  Eluna file-loading code path (if one exists) behaves identically —
+  no further action taken, file left untouched.
+- **`ap_gm.lua` disposition** (carried from E2j13, reclassified this
+  pass): previously logged as "DEVELOPMENT ONLY". Traced actual
+  registrations/commands/runtime use: self-registers via
+  `AP.RT.RegisterEvent("player", 18/19, ...)`, is GM-gated via
+  `AP.IsGM`, and provides real support commands (`#apgm aether`,
+  `setmastery`, `snapshot`, `wipeattune`, `toggledebug`, `togglecheese`,
+  `threat`, `info`). Reclassified **OPTIONAL ADMIN TOOL** — the prior
+  "development only" label was stale. No removal, no change; ships as-is
+  in the current source and public repo.
 - **Client Companion completeness** (§11): 273/273 files byte-identical;
   one deliberate exclusion; zero public-only stale files.
 - **TOC attack** (§12): every referenced file present, exact case,
@@ -156,9 +204,20 @@ docs/polish/minor hardening. POST-2.0 — explicitly deferred, not a defect.
 - **Wrapper quoting attack** (§38): both `echoes.sh` (via WSL) and
   `echoes.ps1` (native Windows) correctly handle a space-containing
   target path.
-- **Version/release-metadata grep** (§43): no new stale user-facing
-  version reference found beyond the already-tracked, already-deferred
-  `.github/ISSUE_TEMPLATE/` labels.
+- **Version/release-metadata grep** (§43): the previously-deferred
+  `.github/ISSUE_TEMPLATE/` `v1.6.0-rc1` labels/placeholders are fixed
+  this pass — both templates now use generic pre-release wording
+  ("Example: v1.6.0-rc1, or the commit hash you're running") instead of
+  a hardcoded label, so the templates don't go stale at the next tag.
+- **Symlink/reparse attack** (§19, resolved this pass): the prior
+  Windows-only attempt was blocked by lack of unprivileged symlink
+  rights. Retested on WSL's native Linux filesystem, which supports real
+  unprivileged symlinks: both a symlinked file and a symlinked directory
+  pointing outside the target root were correctly rejected by
+  `safety.safe_remove_file()` / `safety.safe_remove_tree()`
+  (`UnsafePathError`, path resolved and re-checked against the root
+  before acting), and the real targets outside the root survived
+  untouched in both cases.
 
 ## Environment limitations (attack not completed — honestly reported, not faked)
 
@@ -179,9 +238,6 @@ docs/polish/minor hardening. POST-2.0 — explicitly deferred, not a defect.
   rests on documented evidence (this project's own pre-existing
   `patch-Z.mpq` precedent + community documentation), not a live
   patch-D/E/F fixture test in a real client. Deferred.
-- **Symlink/reparse runtime test**: still skipped, same reason as the
-  prior E2j16 checkpoint (this Windows environment disallows
-  unprivileged symlink creation). Carried forward, not resolved.
 - **DML/generic-AzerothCore installation walkthrough** (§36–37): not
   performed as an end-to-end human-usability walkthrough this pass; the
   installer's argument surface and discovery output were exercised
@@ -194,15 +250,14 @@ docs/polish/minor hardening. POST-2.0 — explicitly deferred, not a defect.
 |---|---|
 | P0 | 0 |
 | P1 | 0 |
-| P2 | 2 (DEFECT-01, DEFECT-02) |
-| P3 | 1 (DEFECT-03) |
+| P2 | 2 (DEFECT-01, DEFECT-02) — both FIXED + VERIFIED |
+| P3 | 1 (DEFECT-03, still open, cosmetic) |
 | POST-2.0 | 0 new (existing deferred items unchanged) |
 
 ## Release blockers
 
 None at P0/P1. DEFECT-01 and DEFECT-02 (both P2, both specific to the
 **upgrade** path from a real prior public release, not fresh install)
-are real and should be fixed before a public release candidate claims
-upgrade correctness, but do not block continued Compatibility
-Verification work, and were left unfixed per this pass's explicit
-audit-only scope.
+are fixed and verified by a durable regression test this pass. No open
+P2/P1/P0 defects remain. DEFECT-03 (P3, cosmetic unused import) remains
+open by design — non-blocking.
