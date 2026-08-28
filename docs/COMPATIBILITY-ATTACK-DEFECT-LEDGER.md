@@ -98,6 +98,24 @@ docs/polish/minor hardening. POST-2.0 — explicitly deferred, not a defect.
   absent after upgrade, and that `mod_echoes_stats` is present in both
   the fresh-install and upgraded trees.
 
+### DEFECT-04 (minor) — module test files not wired into ctest/CMake
+
+- **Severity:** P3
+- **Artifact:** `modules/CMakeLists.txt` (no test-discovery mechanism
+  for module `tests/` directories); `modules/mod-echoes-playerbots/README.md`
+  (documents only 1 of 8 test files, and implies all of them share a
+  bare-`g++` standalone build pattern when one, `EchoesBotCacheTests.cpp`,
+  requires the full core include tree).
+- **Attack that found it:** Compile-matrix pass, module unit test
+  verification (this pass).
+- **User impact:** None to end users; a developer running `ctest` gets
+  zero module test coverage without realizing it, and following the
+  README's own documented command for `EchoesBotCacheTests.cpp`
+  produces a misleading compile error.
+- **Release blocking?** No.
+- **Status:** OPEN — cosmetic/completeness, not fixed this pass (would
+  require a build-system change, out of scope for a fix pass).
+
 ### DEFECT-03 (minor) — `sql_runner.py` imports `glob` without using it
 
 - **Severity:** P3
@@ -219,17 +237,81 @@ docs/polish/minor hardening. POST-2.0 — explicitly deferred, not a defect.
   before acting), and the real targets outside the root survived
   untouched in both cases.
 
-## Environment limitations (attack not completed — honestly reported, not faked)
+## Compile-level attack — RESOLVED this pass (real clean-room compile matrix)
 
-- **Actual compile attack** (§17–18, compile level): a full AzerothCore
-  build (Playerbots-present and Playerbots-absent configurations) was
-  not performed — this environment does not have a built/buildable
-  AzerothCore core source tree with a configured toolchain available
-  within this session's practical time budget. The `#ifdef
-  MOD_PLAYERBOTS` guard *source* was re-verified exhaustively by direct
-  inspection (see "found NO defect" above), but this is explicitly a
-  weaker claim than "compiles cleanly in both configurations." Deferred
-  to Compatibility Verification.
+- **Actual compile attack** (§17–18, compile level): performed for
+  real this pass, not deferred. Set up a WSL Arch Linux toolchain from
+  scratch (cmake, boost, openssl, MySQL client headers, gcc-15) and
+  built two independent copies of the current source tree end to end:
+  - **Config A (Playerbots present):** `worldserver`/`authserver`
+    configured and built successfully. Resulting `worldserver` is a
+    real 2.4 GB ELF executable that runs (`--version` prints
+    `AzerothCore rev. 6c70e2dc7ef3+ ... (Playerbot branch)`) and
+    contains 475 real `PlayerbotAI::`/`PlayerbotMgr::`/
+    `RandomPlayerbotMgr::` symbols (the actual Playerbots engine),
+    plus `mod-echoes-playerbots`'s `AddSC_EchoesPlayerbotsAwareness`
+    and `mod-echoes-stats`'s `Addmod_echoes_statsScripts` — everything
+    linked together.
+  - **Config B (Playerbots absent):** the same source tree with
+    `modules/mod-playerbots/` removed before configure. `-DMOD_PLAYERBOTS`
+    correctly never appears in the CMake output. `worldserver`/
+    `authserver` built and linked successfully — a real 1.57 GB ELF
+    executable — with **zero** `PlayerbotAI::`/`PlayerbotMgr::`
+    symbols, confirming the actual Playerbots engine is absent, while
+    `mod-echoes-playerbots`'s own registration
+    (`Addmod_echoes_playerbotsScripts`, `AddSC_EchoesPlayerbotsAwareness`)
+    and `mod-echoes-stats`'s `Addmod_echoes_statsScripts` are still
+    present and linked. This is the actual, compiled proof that
+    `#ifdef MOD_PLAYERBOTS` gates real Playerbots-dependent code paths
+    while leaving the rest of the module fully functional — not a
+    grep-level inference.
+  - The core's own bundled `unittest_suite` target (a pre-existing,
+    unrelated `WorldMock`/gmock abstract-class build break in
+    AzerothCore's own test source, triggered by `-DBUILD_TESTING=1`)
+    was excluded by building the `worldserver`/`authserver` targets
+    directly rather than `all`; this is an upstream core issue, not an
+    Echoes/Playerbots defect, and is out of scope for this attack.
+  - Two genuine, unrelated environment/toolchain defects were found
+    and fixed **only in disposable local copies of the source, never
+    in the live WSL runtime tree**: (1) a real prototype mismatch in
+    vendored `deps/jemalloc` (`safety_check.h` declared
+    `safety_check_set_abort` with unspecified arguments `()` while
+    `safety_check.c` defines it taking `(const char *)` — a pre-existing
+    jemalloc-snapshot bug, reproducible on both GCC 16.1 and GCC 15.3,
+    unrelated to Echoes/Playerbots); (2) AzerothCore's `FindMySQL.cmake`
+    needs the actual Oracle-API-compatible MySQL client library
+    (`mysql_ssl_mode`, `mysql_stmt_bind_named_param`, etc.) — Arch's
+    default `mariadb-libs` package does not provide these APIs, so
+    `percona-server-clients` (which tracks the Oracle API) was used
+    instead via explicit `-DMYSQL_INCLUDE_DIR`/`-DMYSQL_LIBRARY` cache
+    variables. Neither fix touched any Echoes-owned file or the live
+    WSL tree; both are one-time local toolchain/environment setup
+    facts, recorded here for reproducibility.
+- **Module unit tests** (new this pass): 7 of the 8 `.cpp` test files
+  under `modules/mod-echoes-playerbots/tests/` are genuinely standalone
+  (compile with a bare `g++ -std=c++17 -I../src`, per the pattern the
+  module's own README documents for one of them) and all pass:
+  `EchoesDissolutionPolicyTests` 42/42, `EchoesBotActionTypesTests`
+  28/28, `EchoesBotCacheTests` — see below, `EchoesDispositionTests`
+  26/26, `EchoesResidueSpendingPolicyTests` 14/14,
+  `EchoesProgressionBudgetPolicyTests` 24/24,
+  `EchoesProgressionSchedulerPolicyTests` 89/89,
+  `EchoesLoginReconciliationTests` 11/11,
+  `EchoesAwarenessTests` 13/13 — **247/247 standalone assertions
+  passing**. One file, `EchoesBotCacheTests.cpp`, is not actually
+  standalone (its production source transitively includes the full
+  AzerothCore `Common.h`, unlike the other seven) and cannot be
+  compiled with the documented bare `g++` pattern; its README should
+  be corrected to not imply all module tests follow that pattern (P3,
+  doc accuracy, not fixed this pass). Its underlying production source
+  is nonetheless proven to compile correctly as part of the full
+  `worldserver` build above. None of these 8 test files are wired into
+  AzerothCore's own CMake/ctest integration — `modules/CMakeLists.txt`
+  has no test-globbing mechanism for module `tests/` directories, so
+  `ctest` never runs them; they must be invoked manually as documented.
+  This is a real, minor completeness gap (P3) worth fixing post-2.0,
+  not fixed this pass (would be a build-system change, out of scope
+  for an attack/fix pass).
 - **Live client tests** (§31, §33, §35): patch-E.MPQ live load, `#aptest
   forge` live execution, and Client Companion end-to-end smoke all
   require an interactive WoW client session, which this environment
@@ -251,7 +333,7 @@ docs/polish/minor hardening. POST-2.0 — explicitly deferred, not a defect.
 | P0 | 0 |
 | P1 | 0 |
 | P2 | 2 (DEFECT-01, DEFECT-02) — both FIXED + VERIFIED |
-| P3 | 1 (DEFECT-03, still open, cosmetic) |
+| P3 | 2 (DEFECT-03, DEFECT-04 — both open, cosmetic) |
 | POST-2.0 | 0 new (existing deferred items unchanged) |
 
 ## Release blockers
