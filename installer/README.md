@@ -10,16 +10,17 @@ interpreter and hand off arguments unchanged to `installer/cli.py`.
 
 | Command | Status |
 |---|---|
-| `install` | Implemented and sandbox-tested (fresh install, repeat install) |
+| `install` | Implemented and sandbox-tested (fresh install, repeat install, partial-install failure recovery) |
 | `verify` | Implemented and sandbox-tested |
+| `upgrade` | Implemented and sandbox-tested (thin wrapper over `install()`'s own backup-before-replace + idempotent-SQL behavior; tested against a representative pre-manifest legacy layout) |
+| `repair` | Implemented and sandbox-tested (missing files restored automatically; hash-mismatched files reported only, unless `--restore-mismatched`) |
+| `uninstall` | Implemented and sandbox-tested (manifest-scoped removal, database retention by default; `--purge` not implemented -- future scope) |
 | `client-package` | Implemented and tested |
-| `upgrade` | **Not yet implemented** -- raises `NotImplementedError` with a design note |
-| `repair` | **Not yet implemented** -- raises `NotImplementedError` with a design note |
-| `uninstall` | **Not yet implemented** -- raises `NotImplementedError` with a design note |
+| `discover` | Implemented (read-only) |
 
-See each stub module's docstring (`installer/core/upgrade.py`,
-`repair.py`, `uninstall.py`) for what's already designed vs. what's still
-open.
+A prior checkpoint's `upgrade`/`repair`/`uninstall` stubs (with design
+notes on the open questions each one resolved) have been superseded by
+the real implementations above.
 
 ## Usage
 
