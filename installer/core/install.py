@@ -42,7 +42,15 @@ def _now_iso():
     # established env/backups/<phase>/<timestamp>/ convention
     # (e.g. 20260715T184148-0700) and, unlike a literal ISO-8601 string,
     # works as a directory-name component on Windows as well as Linux/WSL.
-    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    # Microsecond precision (not just seconds): two install() calls that
+    # both need to back up the same component (e.g. two Playerbots-config
+    # installs run back-to-back) can otherwise land on the identical
+    # second and collide on the identical backup directory name --
+    # shutil.copytree refuses to write into an already-existing directory,
+    # so the second call's backup step raises FileExistsError. Caught by
+    # this installer's own test suite running two installs in quick
+    # succession.
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
 
 
 class InstallOptions:
@@ -55,6 +63,7 @@ class InstallOptions:
         client_root=None,
         vanilla_dbc_path=None,
         enable_playerbots_integration=False,
+        confirm_playerbots_compatible=False,
     ):
         self.azerothcore_root = azerothcore_root
         self.mysql_args = mysql_args
@@ -63,6 +72,14 @@ class InstallOptions:
         self.client_root = client_root
         self.vanilla_dbc_path = vanilla_dbc_path
         self.enable_playerbots_integration = enable_playerbots_integration
+        # A separate, explicit flag from enable_playerbots_integration
+        # (which only copies the module) -- this one actually flips
+        # EchoesPlayerbots.Enable=1. Must never be inferred from
+        # mod-playerbots merely being present; it exists so an operator
+        # (or a documented upgrade step, once they've verified
+        # compatibility themselves) can make that decision deliberately.
+        # This installer never sets it to True on its own.
+        self.confirm_playerbots_compatible = confirm_playerbots_compatible
         # No force-overwrite option: patch-E.MPQ collisions with a
         # non-Echoes-owned file are always blocked in the ordinary path --
         # see mpq_conflict.py.
@@ -94,6 +111,15 @@ def install(opts):
 
     backups_root = os.path.join(opts.azerothcore_root, "echoes-installer-backups")
 
+    def checkpoint():
+        # Saved after every major step, not just once at the end -- if a
+        # later step raises (e.g. the SQL step hits a bad connection),
+        # the manifest still accurately reflects every component that
+        # DID get copied, so verify()/repair() have something real to
+        # work from instead of "no manifest, nothing installed" while
+        # files actually sit on disk.
+        manifest_mod.save(opts.azerothcore_root, m, timestamp)
+
     # --- CORE: Lua scripts ---
     lua_src = os.path.join(repo_root, "lua_scripts")
     lua_dst = os.path.join(opts.azerothcore_root, "lua_scripts")
@@ -109,6 +135,7 @@ def install(opts):
         "files": hashing.sha256_tree(lua_dst),
         "installed_at": timestamp,
     }
+    checkpoint()
 
     # --- CORE: mod-echoes-stats ---
     stats_src = os.path.join(repo_root, "cpp_patch", "mod-echoes-stats")
@@ -131,6 +158,7 @@ def install(opts):
         "installed_at": timestamp,
         "config_action": conf_result["action"],
     }
+    checkpoint()
 
     # --- OPTIONAL: Playerbots integration ---
     if opts.enable_playerbots_integration:
@@ -160,10 +188,17 @@ def install(opts):
             # EchoesPlayerbots.Enable on its own. See Part B of the
             # governing checkpoint: never auto-enable without a positive
             # compatibility decision.
+            # A caller who has independently confirmed compatibility (e.g.
+            # checked the running schema version themselves) may pass
+            # confirm_playerbots_compatible=True to flip the switch on in
+            # the same install call. Absent that explicit confirmation,
+            # the module is copied but left disabled -- never inferred
+            # from mere presence of mod-playerbots.
+            enable_value = "1" if opts.confirm_playerbots_compatible else "0"
             config.materialize(
                 os.path.join(pb_dst, "conf", "mod_echoes_playerbots.conf.dist"),
                 os.path.join(opts.azerothcore_root, "etc", "modules", "mod_echoes_playerbots.conf"),
-                overrides={"EchoesPlayerbots.Enable": "0"},
+                overrides={"EchoesPlayerbots.Enable": enable_value},
             )
             m["config_ownership"]["mod_echoes_playerbots.conf"] = "installer-managed"
             m["components"]["mod_echoes_playerbots"] = {
@@ -171,13 +206,22 @@ def install(opts):
                 "files": hashing.sha256_tree(pb_dst),
                 "installed_at": timestamp,
             }
-            m["playerbots_integration"] = {
-                "detected_present": True,
-                "compatibility_confirmed": False,
-                "enabled": False,
-                "reason": "module installed; EchoesPlayerbots.Enable left at 0 -- "
-                          "operator must confirm compatibility and enable explicitly",
-            }
+            if opts.confirm_playerbots_compatible:
+                m["playerbots_integration"] = {
+                    "detected_present": True,
+                    "compatibility_confirmed": True,
+                    "enabled": True,
+                    "reason": "module installed and enabled -- operator explicitly "
+                              "confirmed compatibility via confirm_playerbots_compatible",
+                }
+            else:
+                m["playerbots_integration"] = {
+                    "detected_present": True,
+                    "compatibility_confirmed": False,
+                    "enabled": False,
+                    "reason": "module installed; EchoesPlayerbots.Enable left at 0 -- "
+                              "operator must confirm compatibility and enable explicitly",
+                }
     else:
         m["playerbots_integration"] = {
             "detected_present": ac_info["has_mod_playerbots"],
@@ -185,6 +229,7 @@ def install(opts):
             "enabled": False,
             "reason": "Playerbots integration not requested for this install",
         }
+    checkpoint()
 
     # --- CORE: SQL ---
     applied_schema = sql_runner.apply_schema_package(opts.mysql_args, opts.characters_database)
@@ -194,6 +239,7 @@ def install(opts):
         "world_files_applied": applied_world,
         "applied_at": timestamp,
     }
+    checkpoint()
 
     # --- RECOMMENDED: Client Companion + patch-E.MPQ ---
     if opts.client_root:
@@ -219,6 +265,7 @@ def install(opts):
             "files": hashing.sha256_tree(addon_dst),
             "installed_at": timestamp,
         }
+        checkpoint()
 
         # patch-E.MPQ (Echoes' reserved slot -- see mpq_conflict.py)
         vanilla_bytes = None
@@ -285,5 +332,5 @@ def install(opts):
                 os.path.join(opts.client_root, "Data", "patch-4.MPQ"),
             )
 
-    manifest_mod.save(opts.azerothcore_root, m, timestamp)
+    checkpoint()
     return m
