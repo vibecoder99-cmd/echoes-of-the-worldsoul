@@ -1,0 +1,391 @@
+diff --git a/lua_scripts/ap_forge.lua b/lua_scripts/ap_forge.lua
+index 9254ae9..6e06a52 100644
+--- a/lua_scripts/ap_forge.lua
++++ b/lua_scripts/ap_forge.lua
+@@ -229,13 +229,30 @@ function AP.Forge.ShowConfirm(player, npc, itemEntry)
+ end
+ 
+ -- Execute dissolution
+--- Ordering is load-bearing for exploit safety:
+---   1. Verify pending state
++-- Ordering is load-bearing for exploit safety AND for crash recoverability
++-- via ap_dissolution_pending (see sql/schema/full_schema.sql, "E2j5h Stage
++-- 4"). Steps 5-11 are NOT one atomic DB transaction -- Eluna/AzerothCore
++-- expose no cross-statement transaction to Lua (see the comment on
++-- AP.Sinks.Invest in ap_sinks.lua for the same underlying constraint). If
++-- the process dies between any of these steps, AP.Forge.ReconcilePendingDissolutions
++-- (called from this file's login handler below) finishes the row
++-- deterministically on next login. That makes this a durable, idempotent
++-- two-phase recovery design -- NOT hardware-level atomicity. See
++-- AP.Forge.GrantDissolutionRewards for the one narrow residual gap this
++-- still has.
++--   1. Verify pending confirm state
+ --   2. Check ap_dissolved_items â€" abort cleanly (player keeps item) if already dissolved
+ --   3. Verify physical item in inventory â€" abort if missing
+---   4. Remove physical item
+---   5. Record in ap_dissolved_items BEFORE any reward grants
+---   6. Grant rewards
++--   4. Reject if a non-COMPLETE ap_dissolution_pending row already exists
++--      for this (guid, item_entry) â€" duplicate/rapid-request guard
++--   5. Reserve: INSERT ap_dissolution_pending, status=PENDING_REMOVAL,
++--      reward amounts snapshotted now so a later edit to AP.Forge.Rewards
++--      can't alter an in-flight payout
++--   6. Remove physical item, SaveToDB
++--   7. status -> REMOVED
++--   8. Record in ap_dissolved_items BEFORE any reward grants
++--   9. status -> RECORDED
++--  10. Grant rewards, status -> COMPLETE (AP.Forge.GrantDissolutionRewards)
+ function AP.Forge.Dissolve(player, npc, itemEntry)
+     local guid      = player:GetGUIDLow()
+     local accountId = player:GetAccountId()
+@@ -318,11 +335,52 @@ function AP.Forge.Dissolve(player, npc, itemEntry)
+         return
+     end
+ 
+-    -- Step 3: Remove the physical item using the item object reference.
++    -- Step 4: duplicate-request / rapid double-click guard. A non-COMPLETE
++    -- pending row already existing here means either a genuinely concurrent
++    -- second request, or a prior interrupted attempt whose recovery hasn't
++    -- run yet. Reject rather than silently overwriting in-flight state --
++    -- only ReconcilePendingDissolutions (login) may resolve a stuck row.
++    local pendingRow = CharDBQuery(string.format(
++        "SELECT `status` FROM `ap_dissolution_pending` WHERE `guid` = %d AND `item_entry` = %d",
++        guid, itemEntry
++    ))
++    if pendingRow then
++        player:SendBroadcastMessage(
++            "|cffff4444[Worldsoul]|r A dissolution for this item is already pending. "..
++            "Log out and back in, or contact a GM if this persists."
++        )
++        AP.Forge.ShowPage(player, npc)
++        return
++    end
++
++    local quality = pending.quality
++    local rewards = AP.Forge.Rewards[quality] or AP.Forge.Rewards[1]
++
++    -- Step 5: Reserve. Reward amounts are snapshotted into the row now.
++    local itemInstanceGuid = 0
++    pcall(function() itemInstanceGuid = itemObj:GetGUIDLow() end)
++    CharDBExecute(string.format(
++        "INSERT INTO `ap_dissolution_pending` "..
++        "(`guid`,`account_id`,`item_entry`,`item_instance_guid`,`quality`,"..
++        "`essence_reward`,`gold_reward`,`residue_reward`,`status`) "..
++        "VALUES (%d,%d,%d,%d,%d,%d,%d,%d,'PENDING_REMOVAL')",
++        guid, accountId, itemEntry, itemInstanceGuid, quality,
++        rewards.essence, rewards.gold, rewards.residue
++    ))
++    CharDBExecute("COMMIT")
++
++    -- Step 6: Remove the physical item using the item object reference.
+     -- Mirrors the Echo Fragment removal pattern (ap_events.lua).
+     local removed = false
+     pcall(function() player:RemoveItem(itemObj, 1); removed = true end)
+     if not removed then
++        -- Item was never touched -- safe to drop the reservation outright
++        -- rather than leaving it for login recovery.
++        CharDBExecute(string.format(
++            "DELETE FROM `ap_dissolution_pending` WHERE `guid` = %d AND `item_entry` = %d",
++            guid, itemEntry
++        ))
++        CharDBExecute("COMMIT")
+         player:SendBroadcastMessage(
+             "|cffff4444[Worldsoul]|r The item could not be removed. Please try again."
+         )
+@@ -331,17 +389,21 @@ function AP.Forge.Dissolve(player, npc, itemEntry)
+         return
+     end
+ 
+-    -- Persist item removal before recording the dissolution or granting
+-    -- rewards. Without this, a crash between here and the ap_dissolved_items
+-    -- INSERT could leave character_inventory with the item restored (the
+-    -- in-memory removal rolled back), while the dissolution record is
+-    -- already committed â€" locking the player out with no reward and no item.
++    -- Persist item removal before advancing the pending row. Without this,
++    -- a crash between here and the status update could leave
++    -- character_inventory with the item restored (the in-memory removal
++    -- rolled back) while the pending row claims REMOVED.
+     pcall(function() player:SaveToDB(false, false) end)
+ 
+-    local quality = pending.quality
+-    local rewards = AP.Forge.Rewards[quality] or AP.Forge.Rewards[1]
++    -- Step 7: item is physically gone and saved. From this point on the
++    -- dissolution WILL complete -- either now or via login reconciliation.
++    CharDBExecute(string.format(
++        "UPDATE `ap_dissolution_pending` SET `status` = 'REMOVED' WHERE `guid` = %d AND `item_entry` = %d",
++        guid, itemEntry
++    ))
++    CharDBExecute("COMMIT")
+ 
+-    -- Step 4: Record dissolution before granting rewards so partial
++    -- Step 8: Record dissolution before granting rewards so partial
+     -- failures can never leave the ledger open for retry exploitation.
+     -- ap_item_attune is intentionally NOT deleted â€" attuned=1 is permanent.
+     -- The snapshot (absorbed stats) is also unchanged.
+@@ -352,28 +414,15 @@ function AP.Forge.Dissolve(player, npc, itemEntry)
+     ))
+     CharDBExecute("COMMIT")
+ 
+-    -- Step 5: Grant rewards.
++    -- Step 9
+     CharDBExecute(string.format(
+-        "INSERT INTO `ap_mastery` (`guid`,`aether`,`mastery`) VALUES (%d,%d,0) "..
+-        "ON DUPLICATE KEY UPDATE `aether`=`aether`+%d",
+-        guid, rewards.essence, rewards.essence
++        "UPDATE `ap_dissolution_pending` SET `status` = 'RECORDED' WHERE `guid` = %d AND `item_entry` = %d",
++        guid, itemEntry
+     ))
+-
+-    local currentGold = 0
+-    pcall(function() currentGold = player:GetCoinage() end)
+-    pcall(function() player:SetCoinage(currentGold + rewards.gold) end)
+-
+-    if rewards.residue > 0 then
+-        AP.Forge.AddResidue(player, rewards.residue)
+-    end
+-
+     CharDBExecute("COMMIT")
+ 
+-    -- Unconditional save after all reward grants. AddResidue() already calls
+-    -- SaveToDB internally when residue > 0, but Poor-quality items (residue=0)
+-    -- skip that path, leaving the gold grant (SetCoinage) volatile. This
+-    -- covers that case. Safe to call multiple times â€" SaveToDB is idempotent.
+-    pcall(function() player:SaveToDB(false, false) end)
++    -- Step 10: grant rewards and mark COMPLETE.
++    AP.Forge.GrantDissolutionRewards(player, itemEntry)
+ 
+     -- Remove from Rack if present
+     if AP.Rack then
+@@ -403,14 +452,220 @@ function AP.Forge.Dissolve(player, npc, itemEntry)
+         AP.Tutorial.Trigger(player, "first_dissolution")
+     end
+     if AP.API and AP.API.DispatchHook then
++        -- NOTE: was `pending.entry` (always nil -- AP.Forge.Pending rows
++        -- only ever set `.itemEntry`, never `.entry`) before this pass;
++        -- fixed as part of the E2j5h Dissolution audit since it directly
++        -- corrupted this hook's audit payload.
+         AP.API.DispatchHook("OnForgeDissolve", {
+-            guid=guid, itemEntry=pending.entry,
++            guid=guid, itemEntry=itemEntry,
+             essenceReward=rewards.essence, residueReward=rewards.residue })
+     end
+ 
+     AP.Forge.ShowPage(player, npc)
+ end
+ 
++-- ============================================================
++-- REWARD GRANT (shared by AP.Forge.Dissolve and
++-- AP.Forge.ReconcilePendingDissolutions)
++--
++-- Provably exactly-once per reward channel, using no schema change: each
++-- channel's "grant the amount" and "claim it as granted" are folded into
++-- ONE multi-table UPDATE statement. A single SQL statement is atomic under
++-- InnoDB's autocommit even without an app-level BEGIN/COMMIT around it --
++-- that's a real MySQL guarantee, not something Eluna needs to expose. This
++-- is different from (and does not contradict) the AP.Sinks.Invest comment
++-- in ap_sinks.lua: that comment is about the impossibility of making
++-- MULTIPLE separate CharDBExecute calls behave as one cross-statement
++-- transaction. Here each reward channel's grant+claim is a single
++-- statement, so that limitation doesn't apply to it.
++--
++-- Amounts are re-read from ap_dissolution_pending at the top of every call
++-- (not passed in by the caller) specifically so a replay after a partial
++-- prior run only grants what's still outstanding -- already-claimed
++-- channels read 0 and their `... > 0` guard makes the statement a no-op.
++--
++--   essence_reward -> ap_mastery.aether  (row ensured via idempotent
++--                      INSERT IGNORE, then atomic grant+claim UPDATE)
++--   gold_reward     -> characters.money   (atomic grant+claim UPDATE against
++--                       the core table directly -- NOT through
++--                       player:SetCoinage, which is in-memory-first with no
++--                       way to join it atomically to our claim row).
++--                       player:SetCoinage() is still called afterward, but
++--                       only as a best-effort sync of the live in-memory
++--                       object to the amount THIS call actually claimed
++--                       (0 if already claimed by a prior run). If the
++--                       process dies between the DB UPDATE and this sync
++--                       call, nothing is lost or duplicated: the durable
++--                       value is already correct in `characters.money`,
++--                       and the next login loads fresh from DB.
++--   residue_reward  -> ap_residue.amount  (row ensured via idempotent
++--                       INSERT IGNORE, then atomic grant+claim UPDATE).
++--                       This is the AUTHORITATIVE Residue value --
++--                       AP.Forge.GetResidue / SpendResidue read only this
++--                       ledger, never a physical item count.
++--
++-- The physical Residue item (player:AddItem) is a non-authoritative visual
++-- proxy for ap_residue.amount -- nothing gates spending on physical item
++-- count. It is granted here only when THIS call is the one that actually
++-- performed the ledger claim (residue amount read >0 before the atomic
++-- UPDATE), so it cannot be duplicated by a replay. The one narrow residual
++-- case: if the process dies strictly between the ap_residue UPDATE
++-- committing and the AddItem call running, the physical token is never
++-- granted (a single missing decorative token, not a duplicate, and not an
++-- authoritative-value loss -- the ledger already has the correct amount).
++-- The existing login Residue reconciliation in this file already tops up
++-- a shortfall of physical items against the ledger on next login, which
++-- covers exactly this case.
++-- ============================================================
++function AP.Forge.GrantDissolutionRewards(player, itemEntry)
++    local guid      = player:GetGUIDLow()
++    local accountId = player:GetAccountId()
++
++    local pendingEssence, pendingGold, pendingResidue = 0, 0, 0
++    local pq = CharDBQuery(string.format(
++        "SELECT `essence_reward`, `gold_reward`, `residue_reward` "..
++        "FROM `ap_dissolution_pending` WHERE `guid` = %d AND `item_entry` = %d",
++        guid, itemEntry
++    ))
++    if pq then
++        pendingEssence  = tonumber(tostring(pq:GetUInt32(0))) or 0
++        pendingGold     = tonumber(tostring(pq:GetUInt32(1))) or 0
++        pendingResidue  = tonumber(tostring(pq:GetUInt32(2))) or 0
++    end
++
++    -- Ensure destination rows exist. Both are idempotent no-ops on replay.
++    CharDBExecute(string.format(
++        "INSERT IGNORE INTO `ap_mastery` (`guid`,`aether`,`mastery`) VALUES (%d,0,0)",
++        guid
++    ))
++    CharDBExecute(string.format(
++        "INSERT IGNORE INTO `ap_residue` (`account_id`,`amount`) VALUES (%d,0)",
++        accountId
++    ))
++    CharDBExecute("COMMIT")
++
++    -- Essence: atomic grant+claim.
++    CharDBExecute(string.format(
++        "UPDATE `ap_mastery` m JOIN `ap_dissolution_pending` p ON p.`guid` = m.`guid` "..
++        "SET m.`aether` = m.`aether` + p.`essence_reward`, p.`essence_reward` = 0 "..
++        "WHERE p.`guid` = %d AND p.`item_entry` = %d AND p.`essence_reward` > 0",
++        guid, itemEntry
++    ))
++
++    -- Gold: atomic grant+claim against the core `characters` table.
++    CharDBExecute(string.format(
++        "UPDATE `characters` c JOIN `ap_dissolution_pending` p ON p.`guid` = c.`guid` "..
++        "SET c.`money` = c.`money` + p.`gold_reward`, p.`gold_reward` = 0 "..
++        "WHERE p.`guid` = %d AND p.`item_entry` = %d AND p.`gold_reward` > 0",
++        guid, itemEntry
++    ))
++
++    -- Residue ledger: atomic grant+claim.
++    CharDBExecute(string.format(
++        "UPDATE `ap_residue` r JOIN `ap_dissolution_pending` p ON p.`account_id` = r.`account_id` "..
++        "SET r.`amount` = r.`amount` + p.`residue_reward`, p.`residue_reward` = 0 "..
++        "WHERE p.`guid` = %d AND p.`item_entry` = %d AND p.`residue_reward` > 0",
++        guid, itemEntry
++    ))
++
++    CharDBExecute("COMMIT")
++
++    -- Best-effort in-memory sync + physical token grant. Gated on what THIS
++    -- call actually claimed (read above, before the atomic UPDATEs), so a
++    -- replay that finds everything already claimed does nothing here.
++    if pendingGold > 0 then
++        local currentGold = 0
++        pcall(function() currentGold = player:GetCoinage() end)
++        pcall(function() player:SetCoinage(currentGold + pendingGold) end)
++    end
++    if pendingResidue > 0 then
++        pcall(function() player:AddItem(RESIDUE_ITEM_ENTRY, pendingResidue) end)
++    end
++    pcall(function() player:SaveToDB(false, false) end)
++
++    -- Idempotent: setting an already-COMPLETE row to COMPLETE again is a
++    -- harmless no-op. Safe to run on every call regardless of replay state.
++    CharDBExecute(string.format(
++        "UPDATE `ap_dissolution_pending` SET `status` = 'COMPLETE' WHERE `guid` = %d AND `item_entry` = %d",
++        guid, itemEntry
++    ))
++    CharDBExecute("COMMIT")
++end
++
++-- ============================================================
++-- LOGIN RECONCILIATION -- Dissolution
++-- Resolves any ap_dissolution_pending row left non-COMPLETE by a crash.
++-- Called once per login from this file's RegisterPlayerEvent(3, ...)
++-- handler below, in its own pcall alongside (not instead of) the existing
++-- Residue reconciliation -- same lifecycle owner, per the E2j5h Stage 4
++-- schema design note ("modeled directly on this schema's own
++-- ap_session_state.clean_exit pattern").
++--
++-- Bot exclusion: NOT implemented. No bot-detection API (IsBot /
++-- GetPlayerbotAI / equivalent) exists anywhere in this codebase's Lua or in
++-- mod_attunement_plus.cpp, and AP.Forge.Dissolve is only reachable through
++-- this addon's own gossip-menu dispatch (AP.Forge.OnSelect) -- nothing in
++-- this repo drives that dispatch on behalf of a bot AI today. In practice
++-- that makes Dissolution human-only right now, but that is a property of
++-- what currently calls into this code, not an enforced guarantee.
++-- ============================================================
++function AP.Forge.ReconcilePendingDissolutions(player)
++    local guid      = player:GetGUIDLow()
++    local accountId = player:GetAccountId()
++
++    local q = CharDBQuery(string.format(
++        "SELECT `item_entry`, `essence_reward`, `gold_reward`, `residue_reward`, `status` "..
++        "FROM `ap_dissolution_pending` WHERE `guid` = %d AND `status` != 'COMPLETE'",
++        guid
++    ))
++    if not q then return end
++
++    repeat
++        local itemEntry     = tonumber(tostring(q:GetUInt32(0))) or 0
++        local essenceReward = tonumber(tostring(q:GetUInt32(1))) or 0
++        local goldReward    = tonumber(tostring(q:GetUInt32(2))) or 0
++        local residueReward = tonumber(tostring(q:GetUInt32(3))) or 0
++        local status        = q:GetString(4)
++
++        AP.Log(string.format(
++            "Dissolution reconcile: guid=%d account=%d item=%d status=%s (crash recovery)",
++            guid, accountId, itemEntry, status
++        ))
++
++        if status == "PENDING_REMOVAL" then
++            -- Item was never touched. Drop the reservation; nothing to undo,
++            -- player keeps the item and may dissolve it again normally.
++            CharDBExecute(string.format(
++                "DELETE FROM `ap_dissolution_pending` WHERE `guid` = %d AND `item_entry` = %d",
++                guid, itemEntry
++            ))
++            CharDBExecute("COMMIT")
++
++        elseif status == "REMOVED" then
++            -- Item gone, ledger not yet written (Window A). Finish the
++            -- ledger write, then grant rewards exactly like a normal
++            -- completion.
++            CharDBExecute(string.format(
++                "INSERT IGNORE INTO `ap_dissolved_items` (`account_id`, `item_entry`) VALUES (%d, %d)",
++                accountId, itemEntry
++            ))
++            CharDBExecute(string.format(
++                "UPDATE `ap_dissolution_pending` SET `status` = 'RECORDED' WHERE `guid` = %d AND `item_entry` = %d",
++                guid, itemEntry
++            ))
++            CharDBExecute("COMMIT")
++            AP.Forge.GrantDissolutionRewards(player, itemEntry)
++
++        elseif status == "RECORDED" then
++            -- Ledger already written; rewards not confirmed complete
++            -- (Window B). Grant is idempotent-recoverable, not
++            -- exactly-once, across a double interruption -- see the
++            -- comment on AP.Forge.GrantDissolutionRewards.
++            AP.Forge.GrantDissolutionRewards(player, itemEntry)
++        end
++    until not q:NextRow()
++end
++
+ -- ============================================================
+ -- GOSSIP DISPATCH
+ -- ============================================================
+@@ -489,6 +744,10 @@ RegisterPlayerEvent(3, function(event, player)
+             CharDBQuery("COMMIT;")
+         end)
+ 
++        -- Dissolution crash recovery -- own pcall so a failure here can
++        -- never block or be blocked by Residue reconciliation below.
++        pcall(function() AP.Forge.ReconcilePendingDissolutions(player) end)
++
+         local ledger    = AP.Forge.GetResidue(accountId)
+         if ledger <= 0 then return end
+ 

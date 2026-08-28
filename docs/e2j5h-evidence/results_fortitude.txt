@@ -1,0 +1,16 @@
+[AP Sinks] Aether Sink system loaded. Phase 1: Life Leech (C++ per-hit), Fortitude/Melee Power/Spell Power (C++).
+PASS  ap_sinks.lua loads standalone under real Lua 5.4
+PASS  fortitude def exists with documented ceiling/k
+PASS  zero investment -> zero effect
+PASS  negative investment -> zero effect (defensive)
+PASS  effect strictly increases with investment (10k < 100k)
+PASS  effect strictly increases with investment (100k < 10M)
+PASS  effect never reaches or exceeds ceiling (asymptotic, not a hard cap bug)
+PASS  effect never exceeds ceiling even at extreme investment (saturates, doesn't overflow)
+PASS  GetEffect is a pure function of invested (no drift across repeated calls)
+PASS  GetInvested returns cached value for known account/category
+PASS  GetInvested defaults to 0 for unknown account
+PASS  GetInvested defaults to 0 for unknown category on known account
+PASS  GetEffect responds downward if invested amount is ever lower (no ratchet-up bug)
+
+ALL PASS

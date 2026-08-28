@@ -1,0 +1,73 @@
+[EotW] Legacy Forge loaded.
+PASS  ap_forge.lua loads standalone under real Lua 5.4
+PASS  AP.Forge.ReconcilePendingDissolutions exists (was missing before this pass)
+PASS  AP.Forge.GrantDissolutionRewards exists
+PASS  login handler registered (RegisterPlayerEvent(3, ...))
+PASS  1. eligible item: full happy path grants correct essence
+PASS  1. eligible item: correct gold yield
+PASS  1. eligible item: item physically removed
+PASS  1. eligible item: ap_dissolved_items ledger written exactly once
+PASS  1. eligible item: pending row reaches COMPLETE
+PASS  1. eligible item: AP.Forge.Pending cleared
+PASS  1. eligible item: exactly one OnForgeDissolve audit hook fired
+PASS  1. eligible item: audit hook carries correct (fixed) itemEntry, not nil
+PASS  2. ineligible (not attuned): item NOT removed
+PASS  2. ineligible (not attuned): no pending row created
+PASS  2. ineligible (not attuned): no reward granted
+PASS  3. equipped item: rejected, item kept
+PASS  3. equipped item: no pending row created
+PASS  4. missing item: no pending row created
+PASS  4. missing item: no reward granted
+PASS  5. repeated confirmation: no second reward granted
+PASS  6. rapid duplicate request: second call rejected, item untouched
+PASS  6. rapid duplicate request: no reward granted by the second call
+PASS  6. rapid duplicate request: original pending row untouched
+PASS  7. crash before removal: dissolve call actually crashed (test validity)
+PASS  7. crash before removal: item still physically present pre-recovery
+PASS  7. crash before removal: reconciliation drops the stale reservation
+PASS  7. crash before removal: item was never removed at any point
+PASS  7. crash before removal: no reward was ever granted
+PASS  8. crash after removal/before award: dissolve call actually crashed (test validity)
+PASS  8. crash after removal/before award: item is gone (physically removed before the crash)
+PASS  8. crash after removal/before award: pending row left at REMOVED
+PASS  8. crash after removal/before award: ledger not yet written
+PASS  8. crash after removal/before award: ledger written by recovery
+PASS  8. crash after removal/before award: reward granted exactly once, correct amount
+PASS  8. crash after removal/before award: pending row reaches COMPLETE
+PASS  9. crash during award (Window B): reward granted on recovery
+PASS  9. crash during award (Window B): pending row reaches COMPLETE
+PASS  9. crash during award (Window B): no re-grant on a clean subsequent login
+PASS  10. reconciliation with nothing pending: does not error
+PASS  11. correct yield for quality 0
+PASS  11. correct yield for quality 1
+PASS  11. correct yield for quality 2
+PASS  11. correct yield for quality 3
+PASS  11. correct yield for quality 4
+PASS  11. correct yield for quality 5
+PASS  12. no silent item loss (see cases 7-9 above: each ends item-kept or reward-granted)
+PASS  13. audit hook payload itemEntry is not nil
+PASS  13. audit hook payload itemEntry matches dissolved item
+PASS  15. post-grant/pre-COMPLETE crash: essence not re-granted across 3 reconciliations
+PASS  15. post-grant/pre-COMPLETE crash: gold not re-granted across 3 reconciliations
+PASS  15. post-grant/pre-COMPLETE crash: residue ledger not re-granted across 3 reconciliations
+PASS  15. post-grant/pre-COMPLETE crash: pending row reaches COMPLETE
+PASS  16. partial issuance: essence unaffected by recovery (was already correct)
+PASS  16. partial issuance: gold granted exactly once (not zero, not double)
+PASS  16. partial issuance: residue ledger granted exactly once
+PASS  16. partial issuance: pending row reaches COMPLETE
+PASS  17. partial issuance (2 of 3 done): essence still exactly correct
+PASS  17. partial issuance (2 of 3 done): gold still exactly correct
+PASS  17. partial issuance (2 of 3 done): residue ledger granted exactly once across 3 reconciliations
+PASS  18. five repeated reconciliations from RECORDED: essence granted exactly once
+PASS  18. five repeated reconciliations from RECORDED: gold granted exactly once
+PASS  18. five repeated reconciliations from RECORDED: residue granted exactly once
+PASS  19. disclosed gap confirmed: ledger stays correct (authoritative value never drifts)
+PASS  19. disclosed gap confirmed: physical item is never (re)granted once ledger is claimed (missing-token risk, not duplicate-token risk, as documented)
+PASS  20. end-to-end self-heal: physical Residue token count reaches the ledger amount
+PASS  20. end-to-end self-heal: ledger itself unaffected (still exactly the entitled amount)
+
+OPEN ITEM (not a pass/fail check -- see report): bot exclusion is NOT
+implemented. No IsBot/GetPlayerbotAI/equivalent API exists anywhere in
+this repo's Lua or the mod_attunement_plus C++ patch to check against.
+
+66 passed, 0 failed
