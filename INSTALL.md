@@ -6,6 +6,36 @@ previous one completing without errors.
 
 ---
 
+## Recommended: Use the Installer
+
+`installer/bin/echoes.sh` (Linux/WSL) and `installer/bin/echoes.ps1` (Windows)
+automate every server-side step in this guide (module copy, SQL, Lua
+deployment, patch-E.MPQ build) and produce a tracked install manifest so
+`verify`, `upgrade`, `repair`, and `uninstall` work correctly afterward. This
+is the tested, supported path -- see `installer/README.md` for the full
+command reference. Example:
+
+```bash
+installer/bin/echoes.sh discover --azerothcore-root /path/to/your/azerothcore
+installer/bin/echoes.sh install \
+  --azerothcore-root /path/to/your/azerothcore \
+  --mysql-user <user> --mysql-password <password> \
+  --characters-database acore_characters --world-database acore_world \
+  --client-root "/path/to/WoW 3.3.5a.12340"
+installer/bin/echoes.sh verify --azerothcore-root /path/to/your/azerothcore
+```
+
+The installer expects your AzerothCore instance's own base
+`acore_characters`/`acore_world`/`acore_auth` databases to already exist --
+it layers Echoes' schema on top of an existing AzerothCore installation, it
+does not set up AzerothCore itself.
+
+The rest of this document describes the equivalent **manual** process, for
+anyone who prefers not to use the installer or needs to understand exactly
+what it does under the hood.
+
+---
+
 ## Prerequisites
 
 Before starting, confirm you have:
@@ -67,7 +97,8 @@ if you copied it) being compiled.
 Two sets of SQL must be run against two different databases. Order matters:
 run the schema package first.
 
-**Characters database (18 tables), in numeric order:**
+**Characters database (18 `ap_*` gameplay tables plus `ap_schema_version`,
+19 tables total), in numeric order:**
 
 ```bash
 for f in sql/schema/*.sql; do mysql -u [user] -p acore_characters < "$f"; done
@@ -76,7 +107,7 @@ for f in sql/schema/*.sql; do mysql -u [user] -p acore_characters < "$f"; done
 (Or run each of `00_preflight.sql` through `90_validation.sql` individually,
 in that order, if you prefer to inspect each step's output.)
 
-This creates all 20 `ap_*` tables. The statements are `CREATE TABLE IF NOT EXISTS`
+This creates all 18 `ap_*` gameplay tables plus `ap_schema_version`. The statements are `CREATE TABLE IF NOT EXISTS`
 and are safe to run on an existing install — they produce no errors and make no
 changes to tables that already exist.
 
@@ -100,29 +131,18 @@ errors and make no changes if the rows already exist.
 
 ## Step 3 — Deploy the Lua Scripts
 
-Copy all 20 files from `lua_scripts/` into your server's Eluna script folder.
-The default path in an AzerothCore build is:
+Copy **every file** in `lua_scripts/` (28 files) into your server's Eluna
+script folder -- do not hand-pick a subset. The default path in an
+AzerothCore build is:
 
 ```
 build/bin/RelWithDebInfo/lua_scripts/    (Windows, RelWithDebInfo build)
 build/bin/lua_scripts/                   (Linux)
 ```
 
-The files to copy:
-
-```
-ap_commands.lua         ap_rack.lua
-ap_core.lua             ap_sinks.lua
-ap_events.lua           ap_tests.lua
-ap_flash_messages.lua   ap_tooltip.lua
-ap_forge.lua            ap_tutorial.lua
-ap_gm.lua               ap_ui.lua
-ap_gm_aether.lua        ap_visage.lua
-ap_items.lua            ap_worldsoul_voice.lua
-ap_pvp.lua              ap_zzapi.lua
-ap_auralab.lua          zz_eluna_probe.lua
-```
-
+The numbered `ap00_*` through `ap06_*` files are foundational runtime
+bootstrap scripts and must load before the rest -- Eluna's alphabetical load
+order already handles this correctly as long as every file is present.
 `zz_eluna_probe.lua` loads last (alphabetical) and confirms the Eluna
 environment is available. If it produces errors on startup, your Eluna build
 has a problem unrelated to this mod.
@@ -181,17 +201,19 @@ Expected output on a clean 12340 Item.dbc:
 
 **Package into a client patch MPQ:**
 
-Using Ladik's MPQ Editor (or equivalent):
+Using Ladik's MPQ Editor (or equivalent), or `dbc_patch/build_patch_mpq.py`
+(which does steps 1-2 for you):
 
 1. Create a new archive. Choose MPQ format version 1 (compatible with 3.3.5a).
 2. Add `Item_patched.dbc` to the archive at the internal path `DBFilesClient\Item.dbc`.
-3. Save the archive as `patch-Z.mpq` (or any name that sorts after `patch-3.MPQ`
-   in your client's `Data\` folder).
+3. Save the archive as `patch-E.MPQ` -- this is Echoes' reserved client-patch
+   slot. Do not reuse a different letter; the installer's conflict detection
+   and upgrade logic specifically identify and manage `patch-E.MPQ`.
 4. Copy the finished MPQ to your WoW client's `Data\` folder.
 
-Distribute this MPQ to any players who connect to your server. The `join-the-server/`
-folder in this repository is a ready-made player package containing a pre-built
-copy of this MPQ (`patch-Z.mpq`) plus the client AddOn.
+Distribute this MPQ to any players who connect to your server, along with the
+client AddOn (Step 5 below). `installer/bin/echoes.sh client-package` builds
+a ready-made player package containing both, if you used the installer.
 
 ---
 
@@ -303,5 +325,5 @@ AzerothCore, and restart the worldserver.
 ### DBC / client data
 
 Re-run `dbc_patch/patch_item_dbc.py` against a clean base `Item.dbc`,
-repackage the MPQ, and distribute the updated `patch-Z.mpq` to players (or
-update the `join-the-server/` package).
+repackage the MPQ, and distribute the updated `patch-E.MPQ` to players (or
+re-run `installer/bin/echoes.sh client-package` if you used the installer).

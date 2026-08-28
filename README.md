@@ -93,7 +93,7 @@ Recommended practices:
   another server.
 - Keep one untouched backup copy of the client.
 - Make a separate copy for Echoes of the Worldsoul.
-- Install only the server-provided `patch-Z.mpq` into `Data/`.
+- Install only the server-provided `patch-E.MPQ` into `Data/`.
 - Install only `EchoesOfTheWorldsoulBridge` into `Interface/AddOns/`.
 - If you already have extra `patch-*.mpq` files from another server, remove them
   or use a fresh client copy before testing.
@@ -102,7 +102,27 @@ Recommended practices:
 
 ## Quick Start
 
-See **`INSTALL.md`** for the full step-by-step setup. The short version:
+**Recommended: use the installer.** `installer/bin/echoes.sh` (Linux/WSL) or
+`installer/bin/echoes.ps1` (Windows) automates every step below -- module
+copy, SQL, Lua deployment, patch-E.MPQ build, and client packaging -- and
+tracks what it installed in a manifest so `verify`/`upgrade`/`repair`/
+`uninstall` work later. See `installer/README.md` for the full command
+reference. Typical fresh install:
+
+```bash
+installer/bin/echoes.sh install \
+  --azerothcore-root /path/to/your/azerothcore \
+  --mysql-user <user> --mysql-password <password> \
+  --characters-database acore_characters --world-database acore_world \
+  --client-root "/path/to/WoW 3.3.5a.12340"
+```
+
+Add `--with-playerbots --confirm-playerbots-compatible` only if you run
+mod-playerbots and have verified compatibility yourself.
+
+See **`INSTALL.md`** for the full walkthrough, including the manual
+step-by-step process for anyone who prefers not to use the installer. The
+manual short version:
 
 1. Copy `cpp_patch/mod-echoes-stats/` (required) and, if you run Playerbots,
    `cpp_patch/mod-echoes-playerbots/` (optional) into your AzerothCore
@@ -114,7 +134,7 @@ See **`INSTALL.md`** for the full step-by-step setup. The short version:
 4. Copy all files from `lua_scripts/` into your server's `lua_scripts/` folder.
 5. Patch your `Item.dbc` using `dbc_patch/patch_item_dbc.py` (or the combined
    `dbc_patch/build_patch_mpq.py`, which also packages the result into an
-   MPQ) and put the result in a client patch MPQ.
+   MPQ) and put the result in a client patch MPQ, named `patch-E.MPQ`.
 6. Install `client_addon/EchoesOfTheWorldsoulBridge/` into your WoW client's
    `Interface/AddOns/` folder.
 7. Restart the server. Type `#ap` in-game to confirm the mod is live.
