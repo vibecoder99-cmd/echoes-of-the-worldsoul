@@ -57,6 +57,48 @@ python installer/cli.py verify --azerothcore-root /path/to/azerothcore \
 python installer/cli.py client-package --output-dir ./release --vanilla-dbc-path ./my_Item.dbc
 ```
 
+## Split Docker/DML-style runtime layouts
+
+A traditional bare-metal AzerothCore checkout keeps `modules/`,
+`lua_scripts/`, and `etc/` all directly under one root -- `--azerothcore-root`
+alone is correct there, and this remains the default with no other flags
+needed.
+
+A Docker-based deployment can split this: C++ `modules/` only matters at
+image-build time and lives at the checkout root, while the actual live
+`lua_scripts/` and `etc/modules/` are bind-mounted from a separate runtime
+distribution root (an `env/dist/`-style directory) that has no `modules/`
+of its own. No single `--azerothcore-root` represents both in that shape.
+`echoes discover` flags this automatically:
+
+```
+python installer/cli.py discover --azerothcore-root /path/to/azerothcore
+# Detected split DML-style runtime layout. Suggested:
+#   --azerothcore-root /path/to/azerothcore
+#   --lua-root /path/to/azerothcore/env/dist
+#   --config-root /path/to/azerothcore/env/dist
+```
+
+Pass the suggested (or your own) explicit roots on `install`/`upgrade`:
+
+```
+python installer/cli.py install \
+    --azerothcore-root /path/to/azerothcore \
+    --lua-root /path/to/azerothcore/env/dist \
+    --config-root /path/to/azerothcore/env/dist \
+    --mysql-user root --mysql-password '...' \
+    --characters-database acore_characters --world-database acore_world
+```
+
+`--lua-root`/`--config-root` default to `--azerothcore-root` when omitted,
+so every existing single-root invocation is unaffected. The installer
+never infers a split layout on its own and never silently picks a root --
+`discover`'s suggestion is diagnostic only. `verify`/`repair`/`uninstall`
+read the effective roots back out of the install manifest (which records
+them), so they don't need these flags repeated; a manifest written before
+this feature existed is still read correctly, defaulting both roots to
+its recorded `azerothcore_root`.
+
 On Windows, use `installer\bin\echoes.ps1` in place of `python installer/cli.py`
 (same arguments). On Linux/WSL, `installer/bin/echoes.sh`.
 

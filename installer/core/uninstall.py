@@ -48,13 +48,14 @@ def uninstall(azerothcore_root):
             f"No install manifest found at {azerothcore_root} -- nothing to uninstall."
         )
 
-    client_root = m.get("client_root")
+    roots = manifest_mod.effective_roots(m)
+    client_root = roots["client"]
     report = UninstallReport()
 
     # --- lua_scripts: file-scoped removal only ---
     core_lua = m.get("components", {}).get("core_lua")
     if core_lua and core_lua.get("enabled"):
-        lua_root = os.path.join(azerothcore_root, "lua_scripts")
+        lua_root = os.path.join(roots["lua"], "lua_scripts")
         for rel in core_lua.get("files", {}):
             target = os.path.join(lua_root, rel)
             try:

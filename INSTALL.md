@@ -30,6 +30,14 @@ The installer expects your AzerothCore instance's own base
 it layers Echoes' schema on top of an existing AzerothCore installation, it
 does not set up AzerothCore itself.
 
+**Docker-based deployment?** If your `modules/` directory lives at one path
+but your actual running server's `lua_scripts/`/`etc/modules/` are
+bind-mounted from elsewhere (common in Docker setups, where C++ modules are
+build-time-only and never need a runtime mount), run `discover` first --
+it detects this and suggests the right `--lua-root`/`--config-root` flags
+for `install`/`upgrade`. See `installer/README.md`'s "Split Docker/DML-style
+runtime layouts" section for the full explanation.
+
 The rest of this document describes the equivalent **manual** process, for
 anyone who prefers not to use the installer or needs to understand exactly
 what it does under the hood.

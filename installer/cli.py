@@ -37,6 +37,8 @@ def _install_opts(args):
         vanilla_dbc_path=args.vanilla_dbc_path,
         enable_playerbots_integration=args.with_playerbots,
         confirm_playerbots_compatible=args.confirm_playerbots_compatible,
+        lua_root=args.lua_root,
+        config_root=args.config_root,
     )
 
 
@@ -62,9 +64,22 @@ def cmd_verify(args):
 
 def cmd_discover(args):
     if args.azerothcore_root:
-        print("AzerothCore root:", json.dumps(discovery.describe_azerothcore_root(args.azerothcore_root), indent=2))
+        info = discovery.describe_azerothcore_root(args.azerothcore_root)
+        print("AzerothCore root:", json.dumps(info, indent=2))
         ale = prereq.check_mod_ale(args.azerothcore_root)
         print(repr(ale), ale.remediation or "")
+        if info["looks_like_split_dml_layout"]:
+            print(
+                "\nDetected split DML-style runtime layout (modules/ at this "
+                "root, but lua_scripts/ and etc/modules/ live under env/dist/ "
+                "instead of directly here).\n"
+                "Suggested:\n"
+                f"  --azerothcore-root {args.azerothcore_root}\n"
+                f"  --lua-root {info['suggested_lua_root']}\n"
+                f"  --config-root {info['suggested_config_root']}\n"
+                "This is a suggestion only -- pass the explicit flags yourself "
+                "to act on it; nothing here changes anything."
+            )
     if args.client_root:
         print("Client root:", json.dumps(discovery.describe_client_root(args.client_root), indent=2))
     return 0
@@ -122,6 +137,22 @@ def build_parser():
     def add_install_like(sp):
         add_common_ac(sp)
         add_common_mysql(sp)
+        sp.add_argument(
+            "--lua-root", default=None,
+            help="Root containing the live lua_scripts/ directory, if different "
+                 "from --azerothcore-root (e.g. a Docker/DML-style deployment's "
+                 "env/dist/ runtime distribution root). Defaults to "
+                 "--azerothcore-root, which is correct for a traditional "
+                 "bare-metal AzerothCore checkout where modules/, lua_scripts/, "
+                 "and etc/ all live together. Run 'echoes discover' first if "
+                 "unsure -- it flags this split-layout case automatically.",
+        )
+        sp.add_argument(
+            "--config-root", default=None,
+            help="Root containing the live etc/modules/ directory, if different "
+                 "from --azerothcore-root. Same split-Docker-layout rationale as "
+                 "--lua-root; defaults to --azerothcore-root.",
+        )
         sp.add_argument("--client-root", default=None)
         sp.add_argument("--vanilla-dbc-path", default=None)
         sp.add_argument("--with-playerbots", action="store_true")

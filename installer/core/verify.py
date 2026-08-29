@@ -33,12 +33,14 @@ def verify(azerothcore_root, mysql_args=None, characters_database=None):
     ale = prereq.check_mod_ale(azerothcore_root)
     checks.append(Check("mod-ale prerequisite", PASS if ale.present else FAIL, ale.remediation or ""))
 
+    roots = manifest_mod.effective_roots(m)
+
     for component, data in m.get("components", {}).items():
         if not data.get("enabled"):
             continue
         expected = data.get("files", {})
         if component == "core_lua":
-            root = os.path.join(azerothcore_root, "lua_scripts")
+            root = os.path.join(roots["lua"], "lua_scripts")
         elif component in ("mod_echoes_stats", "mod_echoes_playerbots"):
             root = os.path.join(azerothcore_root, "modules", component.replace("_", "-"))
         elif component == "client_companion":

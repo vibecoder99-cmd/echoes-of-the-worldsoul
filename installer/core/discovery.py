@@ -27,6 +27,22 @@ def describe_azerothcore_root(path):
         raise FileNotFoundError(f"not a directory: {path}")
 
     modules_dir = os.path.join(path, "modules")
+    has_root_lua = os.path.isdir(os.path.join(path, "lua_scripts"))
+    has_root_config = os.path.isdir(os.path.join(path, "etc", "modules"))
+    # A split Docker/DML-style deployment keeps modules/ (build-time only,
+    # baked into the image) at this root, but bind-mounts its actual live
+    # lua_scripts/ and etc/modules/ from a separate runtime distribution
+    # directory -- env/dist/ in every deployment of this shape seen so
+    # far. This is a real, generic filesystem signature (not a
+    # personal-path guess): the traditional single-root layout has BOTH
+    # lua_scripts/ and etc/modules/ directly under the root; a split
+    # layout has NEITHER at the root but DOES have them under env/dist/.
+    dist_lua = os.path.join(path, "env", "dist", "lua_scripts")
+    dist_config = os.path.join(path, "env", "dist", "etc", "modules")
+    looks_like_split_dml_layout = (
+        not has_root_lua and not has_root_config
+        and os.path.isdir(dist_lua) and os.path.isdir(dist_config)
+    )
     result = {
         "path": path,
         "has_modules_dir": os.path.isdir(modules_dir),
@@ -40,6 +56,13 @@ def describe_azerothcore_root(path):
         # signal. Absence just means "not this specific deployment
         # pattern," not "incompatible."
         "looks_like_dml_style_deployment": os.path.isfile(os.path.join(path, "dml-start.sh")),
+        # Diagnostic only -- never used to silently pick a root. A caller
+        # (human or wrapper) decides whether to actually pass
+        # --lua-root/--config-root; this field only flags that the
+        # traditional single-root assumption looks wrong for this path.
+        "looks_like_split_dml_layout": looks_like_split_dml_layout,
+        "suggested_lua_root": os.path.join(path, "env", "dist") if looks_like_split_dml_layout else None,
+        "suggested_config_root": os.path.join(path, "env", "dist") if looks_like_split_dml_layout else None,
     }
     return result
 

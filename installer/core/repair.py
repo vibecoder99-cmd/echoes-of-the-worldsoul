@@ -32,18 +32,18 @@ import shutil
 from . import hashing, manifest as manifest_mod, safety
 
 _COMPONENT_ROOTS = {
-    "core_lua": lambda repo_root, ac_root, client_root: (
-        os.path.join(repo_root, "lua_scripts"), os.path.join(ac_root, "lua_scripts")
+    "core_lua": lambda repo_root, ac_root, client_root, lua_root, config_root: (
+        os.path.join(repo_root, "lua_scripts"), os.path.join(lua_root, "lua_scripts")
     ),
-    "mod_echoes_stats": lambda repo_root, ac_root, client_root: (
+    "mod_echoes_stats": lambda repo_root, ac_root, client_root, lua_root, config_root: (
         os.path.join(repo_root, "cpp_patch", "mod-echoes-stats"),
         os.path.join(ac_root, "modules", "mod-echoes-stats"),
     ),
-    "mod_echoes_playerbots": lambda repo_root, ac_root, client_root: (
+    "mod_echoes_playerbots": lambda repo_root, ac_root, client_root, lua_root, config_root: (
         os.path.join(repo_root, "cpp_patch", "mod-echoes-playerbots"),
         os.path.join(ac_root, "modules", "mod-echoes-playerbots"),
     ),
-    "client_companion": lambda repo_root, ac_root, client_root: (
+    "client_companion": lambda repo_root, ac_root, client_root, lua_root, config_root: (
         os.path.join(repo_root, "client_addon", "EchoesOfTheWorldsoulBridge"),
         os.path.join(client_root, "Interface", "AddOns", "EchoesOfTheWorldsoulBridge")
         if client_root else (None, None),
@@ -82,14 +82,17 @@ def repair(azerothcore_root, restore_mismatched=False):
         )
 
     repo_root = _repo_root()
-    client_root = m.get("client_root")
+    roots = manifest_mod.effective_roots(m)
+    client_root = roots["client"]
     report = RepairReport()
 
     for component, data in m.get("components", {}).items():
         if not data.get("enabled") or component not in _COMPONENT_ROOTS:
             continue
 
-        src_root, dst_root = _COMPONENT_ROOTS[component](repo_root, azerothcore_root, client_root)
+        src_root, dst_root = _COMPONENT_ROOTS[component](
+            repo_root, azerothcore_root, client_root, roots["lua"], roots["config"]
+        )
         if dst_root is None or not os.path.isdir(src_root):
             continue
 

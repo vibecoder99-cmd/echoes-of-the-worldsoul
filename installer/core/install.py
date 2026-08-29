@@ -64,6 +64,8 @@ class InstallOptions:
         vanilla_dbc_path=None,
         enable_playerbots_integration=False,
         confirm_playerbots_compatible=False,
+        lua_root=None,
+        config_root=None,
     ):
         self.azerothcore_root = azerothcore_root
         self.mysql_args = mysql_args
@@ -71,6 +73,16 @@ class InstallOptions:
         self.world_database = world_database
         self.client_root = client_root
         self.vanilla_dbc_path = vanilla_dbc_path
+        # Split Docker/DML-style layout support: modules/ (C++, build-time)
+        # always lives under azerothcore_root, but a Docker deployment's
+        # actual live lua_scripts/ and etc/modules/ can be bind-mounted
+        # from a separate runtime distribution root (e.g. env/dist/) that
+        # has no modules/ directory of its own -- no single --azerothcore-
+        # root can represent both in that layout. Defaulting both to
+        # azerothcore_root when omitted preserves every existing
+        # single-root (bare-metal) deployment's behavior unchanged.
+        self.lua_root = lua_root if lua_root is not None else azerothcore_root
+        self.config_root = config_root if config_root is not None else azerothcore_root
         self.enable_playerbots_integration = enable_playerbots_integration
         # A separate, explicit flag from enable_playerbots_integration
         # (which only copies the module) -- this one actually flips
@@ -107,6 +119,7 @@ def install(opts):
 
     m = manifest_mod.load(opts.azerothcore_root) or manifest_mod.default_manifest()
     m["azerothcore_root"] = opts.azerothcore_root
+    m["roots"] = {"lua": opts.lua_root, "config": opts.config_root}
     m["installed_at"] = m["installed_at"] or timestamp
 
     backups_root = os.path.join(opts.azerothcore_root, "echoes-installer-backups")
@@ -122,7 +135,7 @@ def install(opts):
 
     # --- CORE: Lua scripts ---
     lua_src = os.path.join(repo_root, "lua_scripts")
-    lua_dst = os.path.join(opts.azerothcore_root, "lua_scripts")
+    lua_dst = os.path.join(opts.lua_root, "lua_scripts")
     if os.path.isdir(lua_dst):
         b = backup.backup_tree(lua_dst, backups_root, timestamp, "lua_scripts")
         if b:
@@ -161,7 +174,7 @@ def install(opts):
     shutil.copytree(stats_src, stats_dst)
     conf_result = config.materialize(
         os.path.join(stats_dst, "conf", "mod_echoes_stats.conf.dist"),
-        os.path.join(opts.azerothcore_root, "etc", "modules", "mod_echoes_stats.conf"),
+        os.path.join(opts.config_root, "etc", "modules", "mod_echoes_stats.conf"),
         overrides={"EchoesStats.Enable": "1"},
     )
     m["config_ownership"]["mod_echoes_stats.conf"] = "installer-managed"
@@ -210,7 +223,7 @@ def install(opts):
             enable_value = "1" if opts.confirm_playerbots_compatible else "0"
             config.materialize(
                 os.path.join(pb_dst, "conf", "mod_echoes_playerbots.conf.dist"),
-                os.path.join(opts.azerothcore_root, "etc", "modules", "mod_echoes_playerbots.conf"),
+                os.path.join(opts.config_root, "etc", "modules", "mod_echoes_playerbots.conf"),
                 overrides={"EchoesPlayerbots.Enable": enable_value},
             )
             m["config_ownership"]["mod_echoes_playerbots.conf"] = "installer-managed"

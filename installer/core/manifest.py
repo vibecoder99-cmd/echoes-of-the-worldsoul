@@ -33,6 +33,18 @@ def default_manifest():
         "last_modified_at": None,
         "azerothcore_root": None,
         "client_root": None,
+        "roots": {
+            # Effective destination roots used at install time. "lua" and
+            # "config" default to azerothcore_root when a deployment's
+            # lua_scripts/ and etc/modules/ live alongside modules/ (the
+            # traditional bare-metal layout). A split Docker/DML-style
+            # layout records its actual runtime distribution root(s) here
+            # instead -- see install.py's --lua-root/--config-root.
+            # Never None once an install has run; use effective_roots()
+            # below to resolve a manifest that predates this field.
+            "lua": None,
+            "config": None,
+        },
         "components": {
             # component name -> {
             #   "enabled": bool,
@@ -96,6 +108,25 @@ def save(azerothcore_root, manifest, timestamp):
         f.write("\n")
     os.replace(tmp_path, path)  # atomic on both POSIX and Windows
     return path
+
+
+def effective_roots(manifest):
+    """Resolve the actual destination roots this manifest's components
+    were installed under, tolerating a manifest written before the
+    "roots" field existed (format version 1 is unchanged -- this is an
+    additive, backward-compatible field, not a version bump). A manifest
+    with no "roots" block, or one whose "lua"/"config" entries are still
+    None, defaults both to the manifest's own azerothcore_root -- exactly
+    matching the traditional single-root layout every pre-existing
+    installer-managed deployment was actually installed under."""
+    ac_root = manifest.get("azerothcore_root")
+    roots = manifest.get("roots") or {}
+    return {
+        "azerothcore": ac_root,
+        "lua": roots.get("lua") or ac_root,
+        "config": roots.get("config") or ac_root,
+        "client": manifest.get("client_root"),
+    }
 
 
 def record_backup(manifest, timestamp, label, backup_path, of_path):
