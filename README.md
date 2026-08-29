@@ -1,115 +1,151 @@
 # Echoes of the Worldsoul
 
-An item attunement and progression mod for AzerothCore 3.3.5a. Every piece of
-gear you carry has a history. Fight with it, and the Worldsoul begins to
-remember — unlocking passive bonuses, currency, and cosmetic effects that
-deepen the longer you stay.
+[![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
+[![Release](https://img.shields.io/badge/release-v2.0.0--rc1-orange.svg)](https://github.com/vibecoder99-cmd/echoes-of-the-worldsoul/releases/tag/v2.0.0-rc1)
+[![AzerothCore](https://img.shields.io/badge/AzerothCore-3.3.5a-informational.svg)](https://github.com/azerothcore/azerothcore-wotlk)
+[![Playerbots](https://img.shields.io/badge/Playerbots-optional-lightgrey.svg)](#playerbots-support)
+
+A long-term progression module for AzerothCore WotLK 3.3.5a. Gear remembers
+what you do with it: fight with a piece long enough and the Worldsoul begins
+to answer, unlocking permanent stat power, a persistent account-wide
+currency, and cosmetic effects that deepen the longer you stay attuned.
+
+**Current release: [v2.0.0-rc1](https://github.com/vibecoder99-cmd/echoes-of-the-worldsoul/releases/tag/v2.0.0-rc1)** —
+a release candidate, not yet final. This is the continuation of the same
+project that shipped `v1.6.0-rc1`, substantially expanded since. See
+[What's New in 2.0](#whats-new-in-20) if you saw Echoes before.
+
+Open source (GPLv3), source-based install, no client modifications beyond an
+additive AddOn and DBC patch. Jump to [Quick Start](#quick-start) or the full
+[Installation Guide](INSTALL.md).
 
 ---
 
-## Feedback / Compatibility Reports
+## What Is Echoes?
 
-This is the Echoes of the Worldsoul 2.0 release candidate. Compatibility
-verification is complete: the graphical Client Companion AddOn and optional
-Playerbots integration added since `v1.6.0-rc1` have both been verified
-against a real clean-room compile matrix, the public installer, and a live
-DML-compatible deployment. See `docs/COMPATIBILITY-ATTACK-DEFECT-LEDGER.md`
-for the full evidence record.
+Echoes of the Worldsoul is a solo/self-paced progression layer that sits on
+top of normal WotLK gameplay, built around one core idea: **your gear has a
+history, and history is worth something.**
 
-Compatibility reports and balance feedback are welcome through
-[GitHub Issues](https://github.com/vibecoder99-cmd/echoes-of-the-worldsoul/issues/new/choose).
-Please include your AzerothCore revision, Eluna version, operating system, SQL
-import result, Lua load result, C++ rebuild result, and client-pack status when
-reporting issues.
+- **Attunement** — every piece of gear you fight with tracks its own
+  progress. Full attunement is permanent, per-account, and survives moving
+  the item between your characters.
+- **Essence** — the currency attunement, kills, bosses, quests, and PvP
+  earn you. It persists across sessions and is spent on permanent upgrades.
+- **Mastery** — ranks up from spent Essence, permanently increasing how much
+  stat power your attuned gear grants you.
+- **The Crucible** — 18 categories of permanent, account-wide investment
+  (Life Leech, Spell Mitigation, XP rate, and more).
+- **The Attunement Rack** — up to 20 slots that let stored gear keep
+  attuning passively without being equipped.
+- **The Legacy Forge** — dissolve a fully-attuned item you no longer need
+  into currency instead of letting it sit dead in your bags.
+- **World Threat** — an optional, voluntary risk/reward challenge mode;
+  higher threat means bigger rewards and real consequences for dying, not
+  artificial stat inflation.
+- **Visage** — cosmetic aura/flash effects that reflect how far your
+  attunement has come.
 
----
-
-## What It Does
-
-**Item Attunement** tracks per-item progress through combat kills. Once an item
-reaches full attunement it is permanently marked and begins generating benefits.
-Attunement is per-account and survives item transfers between your characters.
-
-**Essence** is the primary currency, earned through kills, boss encounters,
-quests, PvP, and item attunement milestones. Essence persists between sessions.
-
-**Mastery** ranks up as you invest Essence. Higher Mastery increases your
-effective absorption percentage, deepening the stat power you retain from
-attuned gear.
-
-**The Crucible** is a set of 18 investment categories — Life Leech, Spell
-Mitigation, Spell Reflection, XP Rate, item drop bonuses, and more. Essence
-spent in the Crucible is permanent and shared across your account.
-
-**The Legacy Forge** lets you dissolve fully-attuned items you no longer need,
-converting them into Worldsoul Residue and a burst of Essence. Each item can be
-dissolved once per account.
-
-**The Attunement Rack** starts with 3 slots and can be expanded up to 20,
-allowing stored items to attune passively through your combat kills without
-needing to be equipped. Expand rack capacity by spending Worldsoul Residue.
-
-**Resonant Drops** reward bonus Essence when the same item drops for you
-repeatedly — a Legacy Surge activates on the fourth and later duplicate drops.
-
-**Visage** applies cosmetic aura and flash effects on kill, with selectable
-themes and intensity tiers that reflect your Worldsoul alignment.
-
-**World Threat** is a voluntary challenge system. Set your threat level from
-Peaceful to Ascendant — higher threat increases reward potential through a
-momentum streak system, but death resets your momentum, costs Essence, weakens
-unfinished attunement progress, and applies an XP debt. No artificial stat
-inflation — the pressure comes from real consequences for recklessness.
-
-**The Worldsoul Voice** delivers escalating flavor messages as you engage with
-the system — quiet at first, more present as your attunement deepens.
+None of this requires grouping, a guild, or any other player — it's built
+for a self-paced or solo-friendly server, though nothing stops it from
+running on a populated one.
 
 ---
 
-## Requirements
+## What's New in 2.0?
 
-| Component | Version / Notes |
-|-----------|----------------|
-| AzerothCore | 3.3.5a (any recent release) |
-| mod-ale (Eluna fork) | External prerequisite -- not bundled in this repository. Build with `LUA_VERSION=lua52` (this project's Lua targets Lua 5.2, not the more common 5.1). See `modules/mod-ale` on your own AzerothCore checkout, or your server's existing Eluna install. |
-| mod-playerbots | Optional external prerequisite. Only needed if you want Playerbots integration (`cpp_patch/mod-echoes-playerbots/`); everything else in this package works with zero Playerbots dependency. |
-| MySQL | acore_characters and acore_world databases |
-| WoW client | 3.3.5a, build 12340 (enUS). Players need the provided client patch MPQ and EchoesOfTheWorldsoulBridge addon for custom item display and tooltip support. |
-| Python | 3.6+ (to run the DBC patch script and the optional MPQ packaging tool, `dbc_patch/mpq_writer.py`) |
+If you saw Echoes at `v1.6.0-rc1`, the short version: **the interface,
+the Playerbots story, and the install experience are all different now.**
+This isn't a new project — it's the same design, substantially
+productionized and hardened.
+
+| | |
+|---|---|
+| **New** | Production **Client Companion** graphical AddOn (previously chat-command-only); optional **Playerbots integration** (`mod-echoes-playerbots`); the **installer** (`installer/`) with tracked install/verify/upgrade/repair/uninstall; the `patch-E.MPQ` client-patch namespace with automatic migration from the old `patch-4.MPQ`; a dedicated **Accessibility** settings panel; split Docker/DML-style runtime layout support (`--lua-root`/`--config-root`) |
+| **Rewritten / Expanded** | Stat/Crucible-effect application moved from Lua-only approximation into `mod-echoes-stats`, a compiled, engine-level module — now a required component, not optional |
+| **Productionized / Hardened** | SQL schema evolution consolidated into idempotent, guarded migrations (`sql/schema/`); a real clean-room C++ compile matrix (Playerbots present *and* absent, both actually built and linked, not inferred); a live DML-compatible deployment certification end to end |
+
+Everything above did not appear newly invented in 2.0 in every case — some
+of it (like Playerbots integration and the stat engine) existed in earlier
+form during the v1.6-era development track and has now been compiled,
+tested, and shipped as part of the public package for the first time. See
+[Compatibility Evidence](#compatibility-evidence) for exactly what was
+verified and how.
 
 ---
 
-## Getting a Clean Wrath 3.3.5a Client
+## Playerbots Support
 
-Echoes of the Worldsoul expects a clean World of Warcraft Wrath of the Lich King
-3.3.5a client, build 12340.
+**Playerbots is entirely optional.** Echoes does not require it, and every
+system above works identically with zero Playerbots dependency.
 
-The current official Battle.net client is not a drop-in replacement for old 3.3.5a
-private-server clients. Use a legally obtained clean 3.3.5a client folder or a
-personal archival backup of one.
+`mod-echoes-playerbots` is the optional integration layer that bridges
+Echoes' attunement/progression systems to Playerbots-controlled characters
+(awareness, retention, Rack interaction, bounded progression spending, and
+explicitly gated Dissolution). Every Playerbots-dependent symbol it uses is
+guarded by `#ifdef MOD_PLAYERBOTS` in the source, so the module compiles to
+an inert no-op when Playerbots isn't present in your `modules/` tree — this
+isn't a design claim, it's been proven by **actually compiling the module
+in both configurations** (Playerbots present and Playerbots absent), not
+inferred from reading the source.
 
-Recommended practices:
+Compatibility evidence for this release:
 
-- Start from a clean 3.3.5a client, build 12340.
-- Avoid repacks, "HD clients," custom launchers, or clients already modified by
-  another server.
-- Keep one untouched backup copy of the client.
-- Make a separate copy for Echoes of the Worldsoul.
-- Install only the server-provided `patch-E.MPQ` into `Data/`.
-- Install only `EchoesOfTheWorldsoulBridge` into `Interface/AddOns/`.
-- If you already have extra `patch-*.mpq` files from another server, remove them
-  or use a fresh client copy before testing.
+- Real clean-room builds completed with Playerbots present (475 real
+  Playerbots engine symbols linked into the resulting binary) and with
+  Playerbots absent (zero engine symbols, module still fully functional).
+- Historically, this integration ran live in production at approximately
+  **1,700–2,000 concurrent bots** over multiple days, with no Echoes
+  compatibility rollback recorded.
+- Current 2.0 source, build, and installer package paths were
+  independently re-verified this release.
+
+This is **tested against the documented AzerothCore/Playerbots environment
+used for this release** — it is not a claim of support for every Playerbots
+fork or configuration in existence.
+
+---
+
+## Dad's MMO Lab / DML Compatibility
+
+**DML-compatible / tested with Dad's MMO Lab-style environments.** This is
+a compatibility statement, not an endorsement, an affiliation, or an
+official Dad's MMO Lab module.
+
+Dad's MMO Lab-style deployments commonly run AzerothCore in Docker with a
+split layout: the C++ module source lives at one root, while the actual
+running server's Lua scripts and config live under a separate runtime
+distribution root (bind-mounted, not the checkout itself). The installer
+supports this directly with explicit `--lua-root`/`--config-root` flags
+(auto-suggested by `echoes discover`) — see
+[installer/README.md](installer/README.md#split-dockerdml-style-runtime-layouts).
+
+---
+
+## Client Companion
+
+The Client Companion (`EchoesOfTheWorldsoulBridge`) is one of the largest
+visible changes since `v1.6.0-rc1`: a full graphical AddOn, not a skin over
+chat commands. It's a versioned client/server protocol backed by live
+server-side Echoes state, with dedicated panels for:
+
+Dashboard · Progression · Talents · World Threat · Crucible · Attunement
+Rack · Legacy Forge · Visage · Codex/Search · Settings · Accessibility
+
+No current, authoritative in-game screenshots of the accepted Client
+Companion were available to include in this pass — only pre-implementation
+design mockups exist locally, which this README deliberately does not use
+(they don't reflect what actually shipped). A screenshot gallery may follow
+in a later documentation update.
 
 ---
 
 ## Quick Start
 
-**Recommended: use the installer.** `installer/bin/echoes.sh` (Linux/WSL) or
-`installer/bin/echoes.ps1` (Windows) automates every step below -- module
-copy, SQL, Lua deployment, patch-E.MPQ build, and client packaging -- and
-tracks what it installed in a manifest so `verify`/`upgrade`/`repair`/
-`uninstall` work later. See `installer/README.md` for the full command
-reference. Typical fresh install:
+**Prerequisites:** an AzerothCore 3.3.5a checkout with `mod-ale` (Eluna,
+`LUA_VERSION=lua52`) built in, MySQL/MariaDB, and a compatible WoW 3.3.5a
+(build 12340) client. See [Requirements](#requirements--compatibility)
+below for the full matrix.
 
 ```bash
 installer/bin/echoes.sh install \
@@ -119,155 +155,275 @@ installer/bin/echoes.sh install \
   --client-root "/path/to/WoW 3.3.5a.12340"
 ```
 
-Add `--with-playerbots --confirm-playerbots-compatible` only if you run
-mod-playerbots and have verified compatibility yourself.
+- Add `--with-playerbots --confirm-playerbots-compatible` only if you run
+  mod-playerbots and have verified compatibility yourself.
+- **Split Docker/DML-style deployment?** Run `echoes.sh discover
+  --azerothcore-root ...` first — it detects the layout and suggests the
+  right `--lua-root`/`--config-root` flags.
+- **Fresh client, automatic `Item.dbc` extraction failed?** That's a known
+  limitation (see [Fresh-Client Note](#fresh-client-itemdbc-note)), not a
+  broken install — extract it once with any MPQ editor and pass
+  `--vanilla-dbc-path`.
+- Confirm everything landed correctly: `installer/bin/echoes.sh verify
+  --azerothcore-root /path/to/your/azerothcore`
 
-See **`INSTALL.md`** for the full walkthrough, including the manual
-step-by-step process for anyone who prefers not to use the installer. The
-manual short version:
+On Windows use `installer\bin\echoes.ps1` in place of `echoes.sh`. Full
+walkthrough, manual (non-installer) steps, and every command's exact
+semantics: **[INSTALL.md](INSTALL.md)**.
 
-1. Copy `cpp_patch/mod-echoes-stats/` (required) and, if you run Playerbots,
-   `cpp_patch/mod-echoes-playerbots/` (optional) into your AzerothCore
-   `modules/` directory and rebuild. `mod-echoes-playerbots` builds safely
-   either way -- it self-gates via `#ifdef MOD_PLAYERBOTS`.
-2. Run `sql/schema/00_preflight.sql` through `sql/schema/90_validation.sql`,
-   in that numeric order, against `acore_characters`.
-3. Run `sql/data/world_items.sql` against `acore_world`.
-4. Copy all files from `lua_scripts/` into your server's `lua_scripts/` folder.
-5. Patch your `Item.dbc` using `dbc_patch/patch_item_dbc.py` (or the combined
-   `dbc_patch/build_patch_mpq.py`, which also packages the result into an
-   MPQ) and put the result in a client patch MPQ, named `patch-E.MPQ`.
-6. Install `client_addon/EchoesOfTheWorldsoulBridge/` into your WoW client's
-   `Interface/AddOns/` folder.
-7. Restart the server. Type `#ap` in-game to confirm the mod is live.
+---
 
-> **Note:** The public source package does not include MPQ files. Server owners
-> should generate or distribute their own client pack. Players joining a server
-> running Echoes of the Worldsoul need the server-provided client patch MPQ and
-> the EchoesOfTheWorldsoulBridge addon for custom item display and tooltip
-> support.
+## Upgrading from v1.6.0-rc1 / Older Echoes Installs
+
+The installer detects and handles a pre-installer legacy layout
+automatically — run `install` (it adopts an existing deployment into
+installer management) or `upgrade` (if a manifest already exists):
+
+- **Legacy files are positively identified before anything is touched** —
+  by content signature, never by filename alone. The old dev-only
+  `ap_gm_aether.lua` and the legacy `mod-attunement-plus/` module (if
+  present) are retired only once identified this way, and only after
+  their replacements are already installed.
+- **The old `patch-4.MPQ` client patch is migrated to the new `patch-E.MPQ`
+  namespace** automatically, once positively identified as Echoes' own
+  prior output — never touched if it can't be proven.
+- **Everything is backed up before being replaced.** Nothing is deleted
+  first "just in case" — see `echoes-installer-backups/` after any run.
+- **Database migrations preserve existing player/progression data.**
+  `sql/schema/` is idempotent and only ever adds what's missing.
+
+Do not manually delete old files before running the installer — let it
+detect and migrate them; that's exactly what the positive-identification
+step is for. This does not extend to unknown, custom-forked deployments —
+the guarantee above is for a genuine prior Echoes install, not an arbitrary
+modification.
+
+---
+
+## This Is Not a Repack
+
+Echoes is entirely source-based. This repository includes:
+
+Lua · SQL · C++ module source · the installer · the client AddOn · DBC
+patch-generation tooling · documentation
+
+It does **not** include, and never will:
+
+a WoW client · Blizzard client data · a custom `Wow.exe` · AzerothCore
+binaries · Playerbots source · `mod-ale` source
+
+**No custom WoW executable and no redistributed WoW client required.**
+Echoes installs an additive client package into an existing, separately
+obtained, compatible 3.3.5a client — it does not claim that client is
+otherwise unmodified by anything else you may have installed.
+
+---
+
+## Requirements / Compatibility
+
+| Component | Status | Notes |
+|---|---|---|
+| AzerothCore 3.3.5a | Required | Source checkout, buildable with CMake — a binary-only install is not sufficient |
+| `mod-ale` (Eluna) | Required | External prerequisite, not bundled. Build with `LUA_VERSION=lua52` |
+| MySQL / MariaDB | Required | `acore_characters`/`acore_world`/`acore_auth` must already exist |
+| WoW 3.3.5a client (build 12340, enUS) | Required | Clean/unmodified copy — see [This Is Not a Repack](#this-is-not-a-repack) |
+| Playerbots (`mod-playerbots`) | Optional | See [Playerbots Support](#playerbots-support) |
+| Docker / DML-style split layout | Optional, supported | `--lua-root`/`--config-root`; auto-detected by `discover` |
+| Windows | Tested | `installer\bin\echoes.ps1`; RelWithDebInfo build |
+| Linux / WSL | Tested | `installer/bin/echoes.sh`; used for the live DML certification this release |
+| Python 3.6+ | Required | For the installer and DBC patch tooling |
+
+Do not read this as a guarantee across every possible AzerothCore fork or
+Eluna build — see [Compatibility Evidence](#compatibility-evidence) for
+exactly what was tested, and `zz_eluna_probe.lua` for a live compatibility
+probe you can run against your own build.
+
+**Known unsupported Eluna APIs** (workarounds already in place):
+`RegisterCommand`, `Player:SetStat`, `Player:IsQuestRewarded`, `HasAura`,
+`GetBagSize`, `GetFloat`, `Player:GetGMLevel`.
+
+### Fresh-Client Item.dbc Note
+
+The installer can automatically extract a vanilla `Item.dbc` from your
+client's own stock archives (via the optional `mpyq` package). **Some real
+3.3.5a MPQ variants are not fully supported by this optional extraction
+path** — many retail WotLK archives use an MPQ header format `mpyq` has
+incomplete support for. This is a known, documented limitation, not a
+reflection of a problem with your client.
+
+The reliable fallback: extract `DBFilesClient\Item.dbc` yourself with any
+MPQ editor (e.g. Ladik's MPQ Editor), then pass
+`--vanilla-dbc-path /path/to/Item.dbc`. This project does not redistribute
+Blizzard's `Item.dbc` and will not link to third-party client downloads.
+
+---
+
+## Architecture
+
+Four layers, each independently understandable:
+
+1. **Echoes Core** (`lua_scripts/`) — the Eluna gameplay/runtime logic:
+   attunement, Essence, Mastery, Crucible, Rack, Forge, World Threat,
+   Visage, and the client/server protocol.
+2. **Engine Integration** (`cpp_patch/mod-echoes-stats/`, required) —
+   compiled, engine-level stat and Crucible-effect application.
+3. **Optional Playerbots Integration** (`cpp_patch/mod-echoes-playerbots/`)
+   — self-gated at compile time; see [Playerbots Support](#playerbots-support).
+4. **Client Companion + Installer** (`client_addon/`, `installer/`) — the
+   graphical AddOn, generated `patch-E.MPQ`, and the full lifecycle tooling
+   (SQL migrations, manifest, install/verify/upgrade/repair/uninstall).
+
+---
+
+## Repository Structure
+
+```
+echoes-of-the-worldsoul/
+├── installer/             Python installer core + Bash/PowerShell wrappers
+│                           (install, verify, upgrade, repair, uninstall,
+│                           client-package, discover) + regression tests
+├── lua_scripts/            Server-side Eluna Lua scripts (28 files)
+├── cpp_patch/
+│   ├── mod-echoes-stats/       Required -- engine-level stat/Crucible-effect application
+│   └── mod-echoes-playerbots/  Optional -- Playerbots integration, self-gated at compile time
+├── sql/
+│   ├── schema/             00_preflight.sql .. 90_validation.sql -- idempotent install package
+│   └── data/               world_items.sql -- custom item rows (acore_world)
+├── dbc_patch/              patch_item_dbc.py, mpq_writer.py, build_patch_mpq.py, tooling docs
+├── client_addon/           EchoesOfTheWorldsoulBridge WoW AddOn (Client Companion)
+├── docs/                   API.md, EXTENSIONS.md, compatibility evidence ledger
+├── .github/                Issue templates
+├── INSTALL.md
+├── CHANGELOG.md
+├── RELEASE_NOTES_v2.0.0-rc1.md
+├── LICENSE
+└── README.md
+```
+
+Not included in this repository: `mod-ale` and `mod-playerbots` (both
+external prerequisites — see Requirements above).
 
 ---
 
 ## Configuration
 
-All runtime configuration lives in `ap_core.lua` under the `AP.Config` table.
-Key settings:
-
-| Key | Default | Description |
-|-----|---------|-------------|
-| `perKillBase` | `(set in config)` | Base attunement progress per kill |
-| `bonusBoss` | `(set in config)` | Bonus attunement for boss kills |
-| `capPerItem` | `(set in config)` | Maximum attunement progress per item |
-| `essencePerKill` | `(set in config)` | Base Essence awarded per kill |
-| `masteryThresholds` | array | Essence thresholds for each Mastery rank |
-
-Crucible sink caps, Rack slot costs, Forge dissolution rewards, and Visage
-theme definitions are all configurable in their respective `ap_*.lua` files.
-No database changes are needed to adjust rates — edit the Lua and `/reload`
-the scripts.
-
----
-
-## Project Structure
-
-```
-echoes-of-the-worldsoul/
-├── lua_scripts/          Server-side Eluna Lua scripts (28 files)
-├── cpp_patch/
-│   ├── mod-echoes-stats/       Required -- engine-level stat/Crucible-effect application
-│   └── mod-echoes-playerbots/  Optional -- Playerbots integration, self-gated at compile time
-├── sql/
-│   ├── schema/           00_preflight.sql .. 90_validation.sql — numbered install package,
-│   │                     18 ap_* tables (acore_characters), run in order
-│   └── data/             world_items.sql — custom item rows (acore_world)
-├── dbc_patch/            patch_item_dbc.py, mpq_writer.py, build_patch_mpq.py,
-│                         test_mpq_writer.py, DBC_EDITING_NOTES.md
-├── client_addon/         EchoesOfTheWorldsoulBridge WoW AddOn (graphical UI)
-├── INSTALL.md
-├── CHANGELOG.md
-├── LICENSE
-└── README.md
-```
-
-Not included in this repository: `mod-ale` (the Eluna Lua engine fork this
-project's Lua depends on) and `mod-playerbots` (needed only for the optional
-Playerbots integration). Both are external prerequisites -- see Requirements
-above.
-
----
-
-## Compatibility
-
-**Tested on:**
-- AzerothCore WotLK 3.3.5a with mod-eluna enabled
-- Windows local server environment (RelWithDebInfo build)
-- MariaDB/MySQL character database
-- C++ module compiled into worldserver.exe
-- Lua 5.2 runtime via Eluna
-
-**Compatibility warning:** Echoes of the Worldsoul depends on specific
-AzerothCore + Eluna behavior. Other Eluna builds may use different event IDs,
-gossip signatures, or available APIs. Run the included tests and compatibility
-probe (`zz_eluna_probe.lua`) before assuming support.
-
-**Known unsupported Eluna APIs** (workarounds used):
-`RegisterCommand`, `Player:SetStat`, `Player:IsQuestRewarded`, `HasAura`,
-`GetBagSize`, `GetFloat`, `Player:GetGMLevel`
-
-**SQL requirement:** Run SQL migrations before enabling Lua scripts. Some
-AzerothCore builds hard-abort on missing columns/tables during DB queries.
-
-**C++ modules:** `mod-echoes-stats` is required for stat/Crucible-effect
-application -- must be compiled into `worldserver.exe` via AzerothCore's
-module system. No separate DLL. `mod-echoes-playerbots` is optional
-(Playerbots integration only) and builds safely whether or not
-mod-playerbots is present.
-
----
-
-## Extension API
-
-Echoes of the Worldsoul exposes `AP.API` for future dependent modules
-(Empire, Prestige, Companions, Fusion Forge, etc.). See `docs/API.md` and
-`docs/EXTENSIONS.md` for the full reference.
-
-Extensions register via `AP.API.RegisterExtension()` and subscribe to game
-events via `AP.API.RegisterHook()`. Hook dispatch is pcall-safe — one
-extension error cannot crash the base module.
+Server-runtime gameplay tuning (attunement rates, Essence rewards, Mastery
+thresholds, Crucible sink caps, Rack slot costs, Forge rewards, Visage
+themes) lives in `ap_core.lua`'s `AP.Config` table and the respective
+`ap_*.lua` files — edit and `.reload eluna` in-game, no database change or
+restart needed. C++ module settings (`EchoesStats.*`,
+`EchoesPlayerbots.*`) live in `etc/modules/*.conf` and take effect on
+restart. Client-side preferences (Accessibility, UI options) are stored by
+the AddOn itself and never touch the server.
 
 ---
 
 ## Testing
 
-In-game (GM only): `#aptest` runs all regression suites.
+**In-game (GM only):** `#aptest` runs the full regression suite — 20 suites,
+214 individual tests, covering math, database, tooltip, anti-spam, quest,
+aether, UI, Forge, Residue, Crucible, Visage, PvP, voice, versioning,
+exploit guards, and every numbered tier's fixes. Run an individual suite
+with e.g. `#aptest tier6` or `#aptest threat`.
 
-Individual suites: `#aptest tier4`, `#aptest tier5`, `#aptest threat`,
-`#aptest tier6`
+**Installer regression (Python, disposable fixtures only):** 200+
+assertions across single-root, split-root, legacy-migration, and
+attack-style test files, re-run from an extracted release artifact as
+part of this RC's own preparation.
 
-Full suite count: 18 test suites, 150+ individual tests.
+**C++ module tests:** 247/247 assertions passing across the module's
+standalone unit test files.
+
+**Clean-room compile evidence:** real compiled builds with Playerbots
+present and absent, not inferred.
+
+These are separate, non-comparable test populations — see
+[Compatibility Evidence](#compatibility-evidence) below rather than
+adding them together.
+
+---
+
+## Compatibility Evidence
+
+Most users won't need to read the full technical ledger. Summary of what
+was independently verified for this release:
+
+- Clean-room C++ builds with Playerbots present and absent (both actually
+  compiled and linked)
+- DML-style and generic-AzerothCore installer walkthroughs
+- The split Docker/DML-style runtime layout fix, verified live against a
+  real deployment
+- A package-equivalent server built and booted from the installer's own
+  output
+- Client Companion package reproduction: 273/273 files byte-identical to
+  a real deployed install
+- Live `patch-4.MPQ` → `patch-E.MPQ` migration, verified against a real
+  client
+- Full live client route/action validation (login, item resolution, every
+  Client Companion panel, one reversible server-backed action)
+- Historical Playerbots load validation at ~1,700–2,000 concurrent bots
+
+Full evidence, methodology, and every individual finding:
+**[docs/COMPATIBILITY-ATTACK-DEFECT-LEDGER.md](docs/COMPATIBILITY-ATTACK-DEFECT-LEDGER.md)**.
+
+---
+
+## Extension API
+
+Echoes exposes `AP.API` for future dependent modules (Empire, Prestige,
+Companions, Fusion Forge, etc.) — see [docs/API.md](docs/API.md) and
+[docs/EXTENSIONS.md](docs/EXTENSIONS.md). Extensions register via
+`AP.API.RegisterExtension()` and subscribe to game events via
+`AP.API.RegisterHook()`; hook dispatch is pcall-safe, so one extension's
+error can't crash the base module.
+
+---
+
+## Getting Help
+
+- **Bugs and compatibility reports:** [GitHub Issues](https://github.com/vibecoder99-cmd/echoes-of-the-worldsoul/issues/new/choose)
+  — please include your AzerothCore revision, Eluna version, OS,
+  single-root/split-layout, installer-or-manual install, Playerbots
+  presence, client build, and any relevant logs.
+- **Installation questions, "will this work for me," general discussion:**
+  [GitHub Discussions](https://github.com/vibecoder99-cmd/echoes-of-the-worldsoul/discussions)
+- **Troubleshooting common issues:** [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
+
+Please do not include database passwords, credentials, or other secrets in
+issue reports.
+
+---
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Security
+
+See [SECURITY.md](SECURITY.md) for how to report a security-relevant issue
+(e.g. installer path handling, unsafe database behavior).
 
 ---
 
 ## Acknowledgments
 
 Inspired by the attunement concept present in **Synastria** private server
-progression systems. This implementation is independent — written from scratch
-for AzerothCore with its own design, database schema, Lua architecture, and
-feature set.
+progression systems. This implementation is independent — written from
+scratch for AzerothCore with its own design, database schema, Lua
+architecture, and feature set.
 
 Developed with the assistance of **Claude** (Anthropic) as an AI pair
 programmer.
 
 Special thanks to **Pramm**, Level 80 Orc Warrior, who endured every crash,
-exploit, and item-loss incident this project produced and is still standing —
-and to the many short-lived Orc Warrior clones created, tested, and deleted in
-his shadow, whose sacrifices were no less essential and whose names history does
-not record.
+exploit, and item-loss incident this project produced and is still
+standing — and to the many short-lived Orc Warrior clones created, tested,
+and deleted in his shadow, whose sacrifices were no less essential and
+whose names history does not record.
 
 ---
 
 ## License
 
-Copyright (C) 2025-2026 vibecoder99.  
+Copyright (C) 2025-2026 vibecoder99.
 Licensed under the GNU General Public License v3.0 or later. See `LICENSE`.
