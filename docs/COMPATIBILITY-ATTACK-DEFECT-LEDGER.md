@@ -380,6 +380,58 @@ to convert to `patch-E.MPQ`.
   is needed for a future audit, rerun `#aptest forge` and capture the
   output.
 
+**PACKAGE-EQUIVALENT SERVER BUILD/BOOT (section 5) — RESULT: PASS, with one
+honestly-scoped limitation:**
+
+Built a real `worldserver`/`authserver` from a genuinely bare AzerothCore
+substrate (`modules/mod-echoes-stats`, `modules/mod-echoes-playerbots`, and
+`lua_scripts/` all physically stripped before running the public
+installer's own `install` command against it — not the WSL dev tree
+directly). Verified by symbol inspection: `Addmod_echoes_statsScripts()`
+and `Addmod_echoes_playerbotsScripts()` both present and linked, 475 real
+`PlayerbotAI::`/`PlayerbotMgr::` symbols confirming the actual Playerbots
+engine (not a stub) is linked in, matching the `--with-playerbots
+--confirm-playerbots-compatible` install flags used.
+
+Booted the resulting `worldserver` against a disposable, schema-seeded
+MySQL instance (never the production database — confirmed no accidental
+production connection succeeded; see safety note below). Result, in order:
+Auth/Character/World/Playerbots database pools all opened and migrated
+cleanly (1352 world updates, 28 Playerbots updates, zero SQL errors);
+module configuration correctly listed `mod_echoes_stats.conf` and
+`mod_echoes_playerbots.conf` among "Using modules configuration"; C++
+script initialization completed with no errors. Boot then reached
+`Failed to find map files for starting areas` and stopped — reproduced
+identically across two independent runs, confirming this is the actual,
+consistent point of failure, not a fluke. This is the same, already-
+documented environment limitation from earlier in this pass (no extracted
+client map/vmap/DBC data exists in this environment) — not a new defect.
+Lua/Eluna initialization was not reached, since it occurs later in
+AzerothCore's own boot sequence than map loading; **Lua-load verification
+in this exact boot path remains unproven**, though the Lua file set itself
+was already proven byte-identical to production source in an earlier pass.
+
+**Safety note:** one intermediate boot attempt's config accidentally
+carried `mod-playerbots`'s own default `PlayerbotsDatabaseInfo` pointing at
+port 3306 (the same host port the live production `ac-database` container
+listens on) with disposable-test credentials. The connection was rejected
+("Access denied") — no access to the production database occurred — and
+the config was immediately corrected to point only at the disposable
+instance before any further boot attempt. Recorded here for transparency,
+not because anything was actually touched.
+
+**CLIENT PACKAGE REPRODUCTION (narrowed scope item 2) — RESULT: PASS:**
+
+Built a fresh `client-package` from the public installer and compared it
+file-by-file (SHA-256) against the AddOn actually deployed on the
+authoritative DML client
+(`C:\Dad's MMO Lab Test WoW Client\Interface\AddOns\EchoesOfTheWorldsoulBridge`).
+Result: all 273 packaged files are byte-identical to the deployed files.
+One file exists on the deployed client but not in the package or anywhere
+in the tracked repo/history (`EchoesUI/Proof/SettingsProof.lua`) — confirmed
+to be local, untracked dev-testing cruft left on the client machine
+outside the normal packaging flow, not a packaging gap.
+
 **Certification scope narrowed** (per explicit project direction) to:
 installer/package output reproducing the known-good current DML state;
 package-equivalent server build/start; package-equivalent Client Companion
