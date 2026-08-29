@@ -603,15 +603,10 @@ launches and connects successfully against the live production server.
 - **Visage: PASS.** Panel opens, character preview renders, server-backed
   earned/locked state populates, Primary/Secondary state renders,
   preview/apply/revert controls render, no broad missing-asset failure.
-- **Talents: FUNCTIONAL PASS, with one transient observation pending
-  confirmation.** Panel opens; real Essence value populates (43,192 in
-  the observed session); real Strength rank/amplifier state populates;
-  investment preview/cost/state renders; production frame/art assets
-  render. Some talent icons initially resolved slowly/appeared absent,
-  then loaded after `/reload` in this and prior testing — matching a
-  previously observed client-side icon/texture-loading transient, not a
-  new regression. **Not classified as a defect or release blocker on
-  this evidence alone.** A follow-up controlled observation (open
-  Talents on a fresh launch, do not `/reload`, note whether icons
-  resolve naturally without it) is pending before any classification or
-  code change.
+- **Talents: PASS, confirmed.** Panel opens; real Essence value populates
+  (43,192 in the observed session); real Strength rank/amplifier state
+  populates; investment preview/cost/state renders; production frame/art
+  assets render. The earlier icon-loading transient was confirmed, on a
+  controlled fresh-launch observation (no `/reload`), to resolve
+  naturally within normal client texture-load time — not a defect, no
+  code change made or needed.
