@@ -210,7 +210,7 @@ def test_patch_e_build_and_legacy_migration():
         backups_root = os.path.join(client_root, "backups")
         result = legacy_migration.migrate(
             client_root, backups_root, "20260101T000000Z",
-            {"mpq_sha256": new_sha},
+            {"sha256": new_sha},
         )
         check("legacy migration action=migrated", result["action"] == "migrated")
         check("old patch-4.MPQ removed after successful verification", not os.path.isfile(legacy_path))
@@ -221,7 +221,7 @@ def test_patch_e_build_and_legacy_migration():
         write_single_file_mpq(legacy_path, "SomeOther\\File.dat", b"not ours")
         result2 = legacy_migration.migrate(
             client_root, backups_root, "20260101T000001Z",
-            {"mpq_sha256": new_sha},
+            {"sha256": new_sha},
         )
         check("unrelated patch-4.MPQ: action=none", result2["action"] == "none")
         check("unrelated patch-4.MPQ left untouched", os.path.isfile(legacy_path))

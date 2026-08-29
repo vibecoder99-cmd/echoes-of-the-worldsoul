@@ -308,22 +308,9 @@ def install(opts):
         checkpoint()
 
         # patch-E.MPQ (Echoes' reserved slot -- see mpq_conflict.py)
-        vanilla_bytes = None
-        vanilla_source = None
-        if opts.vanilla_dbc_path:
-            with open(opts.vanilla_dbc_path, "rb") as f:
-                vanilla_bytes = f.read()
-            vanilla_source = f"user-supplied: {opts.vanilla_dbc_path}"
-        else:
-            vanilla_bytes, archive_name, err = mpq_build.try_extract_vanilla_item_dbc(opts.client_root)
-            if vanilla_bytes is None:
-                raise RuntimeError(
-                    "Could not automatically extract a vanilla Item.dbc from "
-                    f"{opts.client_root}'s own stock archives ({err}). Supply one "
-                    "explicitly with --vanilla-dbc-path."
-                )
-            vanilla_source = f"extracted from client's {archive_name}"
-
+        #
+        # A pre-existing patch-E.MPQ is always a hard conflict check FIRST,
+        # regardless of which path below produces the new one.
         existing_patch_e = client_info["existing_patch_e_mpq"]
         existing_sha = hashing.sha256_file(existing_patch_e) if existing_patch_e else None
         recorded_sha = m.get("patch_mpq", {}).get("sha256")
@@ -340,37 +327,102 @@ def install(opts):
                 "client patch installation."
             )
 
-        if existing_patch_e:
-            b = backup.backup_path(existing_patch_e, backups_root, timestamp, "patch-e-mpq")
-            if b:
-                manifest_mod.record_backup(m, timestamp, "patch-e-mpq", b, existing_patch_e)
-
-        build_result = mpq_build.build(vanilla_bytes, os.path.join(backups_root, "mpq-build", timestamp))
-        final_mpq_path = os.path.join(opts.client_root, "Data", "patch-E.MPQ")
-        shutil.copy2(build_result["mpq_path"], final_mpq_path)
-
-        m["patch_mpq"] = {
-            "generated": True,
-            "path": final_mpq_path,
-            "sha256": hashing.sha256_file(final_mpq_path),
-            "internal_files": build_result["internal_files"],
-            "vanilla_dbc_sha256": build_result["vanilla_dbc_sha256"],
-            "vanilla_dbc_provenance": vanilla_source,
-        }
-
-        # One-time legacy patch-4.MPQ migration -- only acts if the existing
-        # file is positively proven Echoes' own prior output; otherwise a
-        # complete no-op, and any unrelated patch-4.MPQ is never touched.
-        migration_result = legacy_migration.migrate(
-            opts.client_root, backups_root, timestamp, m["patch_mpq"]
+        existing_patch4 = client_info["existing_legacy_patch4_mpq"]
+        can_direct_migrate = (
+            not existing_patch_e
+            and existing_patch4 is not None
+            and mpq_conflict.identify_legacy_echoes_patch4(existing_patch4)
         )
-        m["legacy_patch4_migration"] = migration_result
-        if migration_result.get("backup_path"):
-            manifest_mod.record_backup(
-                m, timestamp, "legacy-patch-4-mpq",
-                migration_result["backup_path"],
-                os.path.join(opts.client_root, "Data", "patch-4.MPQ"),
+
+        if can_direct_migrate:
+            # A positively-identified legacy patch-4.MPQ already IS the
+            # proven-good Echoes payload -- migrate it directly (byte
+            # copy + verify) rather than reconstructing an equivalent
+            # patch-E.MPQ from a vanilla Item.dbc. This needs no mpyq and
+            # no --vanilla-dbc-path at all; see legacy_migration.py's
+            # migrate_direct_from_verified_legacy() for the full
+            # transactional/fail-safe contract.
+            migration_result = legacy_migration.migrate_direct_from_verified_legacy(
+                opts.client_root, backups_root, timestamp
             )
+            if migration_result["action"] != "migrated":
+                raise RuntimeError(
+                    "Legacy patch-4.MPQ was positively identified as Echoes' own "
+                    f"output, but direct migration to patch-E.MPQ failed: "
+                    f"{migration_result.get('reason')}. patch-4.MPQ was left "
+                    "untouched; no patch-E.MPQ was created or replaced."
+                )
+            m["patch_mpq"] = {
+                "generated": True,
+                "path": migration_result["installed"],
+                "sha256": migration_result["sha256"],
+                "internal_files": [mpq_conflict.ECHOES_MPQ_INTERNAL_PATH],
+                "vanilla_dbc_sha256": None,
+                "vanilla_dbc_provenance": None,
+                "provenance": "migrated_from_verified_legacy_patch4",
+            }
+            m["legacy_patch4_migration"] = migration_result
+            if migration_result.get("backup_path"):
+                manifest_mod.record_backup(
+                    m, timestamp, "legacy-patch-4-mpq",
+                    migration_result["backup_path"],
+                    os.path.join(opts.client_root, "Data", "patch-4.MPQ"),
+                )
+        else:
+            # Fresh-build path (no positively-identified legacy patch-4 to
+            # migrate from): construct patch-E.MPQ from a vanilla
+            # Item.dbc, same as a genuinely first-time client install.
+            vanilla_bytes = None
+            vanilla_source = None
+            if opts.vanilla_dbc_path:
+                with open(opts.vanilla_dbc_path, "rb") as f:
+                    vanilla_bytes = f.read()
+                vanilla_source = f"user-supplied: {opts.vanilla_dbc_path}"
+            else:
+                vanilla_bytes, archive_name, err = mpq_build.try_extract_vanilla_item_dbc(opts.client_root)
+                if vanilla_bytes is None:
+                    raise RuntimeError(
+                        "Could not automatically extract a vanilla Item.dbc from "
+                        f"{opts.client_root}'s own stock archives ({err}). Supply one "
+                        "explicitly with --vanilla-dbc-path."
+                    )
+                vanilla_source = f"extracted from client's {archive_name}"
+
+            if existing_patch_e:
+                b = backup.backup_path(existing_patch_e, backups_root, timestamp, "patch-e-mpq")
+                if b:
+                    manifest_mod.record_backup(m, timestamp, "patch-e-mpq", b, existing_patch_e)
+
+            build_result = mpq_build.build(vanilla_bytes, os.path.join(backups_root, "mpq-build", timestamp))
+            final_mpq_path = os.path.join(opts.client_root, "Data", "patch-E.MPQ")
+            shutil.copy2(build_result["mpq_path"], final_mpq_path)
+
+            m["patch_mpq"] = {
+                "generated": True,
+                "path": final_mpq_path,
+                "sha256": hashing.sha256_file(final_mpq_path),
+                "internal_files": build_result["internal_files"],
+                "vanilla_dbc_sha256": build_result["vanilla_dbc_sha256"],
+                "vanilla_dbc_provenance": vanilla_source,
+                "provenance": "freshly_built_from_vanilla_dbc",
+            }
+
+            # Safety net only: retires a leftover positively-identified
+            # legacy patch-4.MPQ in the unusual case one is still present
+            # even after a fresh build (e.g. a previous partial install
+            # already wrote patch-E but never got to retire patch-4). The
+            # ordinary case (no existing patch-E yet) is handled entirely
+            # by the can_direct_migrate branch above and never reaches here.
+            migration_result = legacy_migration.migrate(
+                opts.client_root, backups_root, timestamp, m["patch_mpq"]
+            )
+            m["legacy_patch4_migration"] = migration_result
+            if migration_result.get("backup_path"):
+                manifest_mod.record_backup(
+                    m, timestamp, "legacy-patch-4-mpq",
+                    migration_result["backup_path"],
+                    os.path.join(opts.client_root, "Data", "patch-4.MPQ"),
+                )
 
     checkpoint()
     return m
