@@ -588,3 +588,30 @@ bot-population testing) rather than a casual `docker compose up`/recreate.
 **~1,800-bot maximum stress this pass: NOT PERFORMED / NOT REQUIRED for
 2.0**, given the historical evidence above and the safety decision not to
 force a recreate for incremental evidence value alone.
+
+---
+
+## Live Client Certification — Steps 1-3, 6 result (patch-E live + Client Companion)
+
+**Patch-E.MPQ migration: PASS, live-confirmed.** `patch-E.MPQ` is active on
+the authoritative DML client, the legacy `patch-4.MPQ` is no longer active
+(migrated per the legacy-patch-migration fix above), and the client
+launches and connects successfully against the live production server.
+
+**Client Companion route check (interim, user-observed live):**
+
+- **Visage: PASS.** Panel opens, character preview renders, server-backed
+  earned/locked state populates, Primary/Secondary state renders,
+  preview/apply/revert controls render, no broad missing-asset failure.
+- **Talents: FUNCTIONAL PASS, with one transient observation pending
+  confirmation.** Panel opens; real Essence value populates (43,192 in
+  the observed session); real Strength rank/amplifier state populates;
+  investment preview/cost/state renders; production frame/art assets
+  render. Some talent icons initially resolved slowly/appeared absent,
+  then loaded after `/reload` in this and prior testing — matching a
+  previously observed client-side icon/texture-loading transient, not a
+  new regression. **Not classified as a defect or release blocker on
+  this evidence alone.** A follow-up controlled observation (open
+  Talents on a fresh launch, do not `/reload`, note whether icons
+  resolve naturally without it) is pending before any classification or
+  code change.
