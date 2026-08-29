@@ -64,8 +64,8 @@ This is a normal WoW client setting, not specific to Echoes.
 **Custom items show as question marks.**
 `patch-E.MPQ` isn't in your `Data\` folder, or the client wasn't restarted
 after adding it. Confirm the file is present and try again; if it's still
-wrong, ask the server owner for a fresh copy — client packages are
-per-server.
+wrong, ask the server owner for the client package they currently
+distribute for that server.
 
 **`Error #132` after adding `patch-E.MPQ`.**
 This usually means the file you received doesn't match a clean version of

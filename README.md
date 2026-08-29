@@ -370,10 +370,11 @@ Six layers, each independently understandable — deliberately not blurring
    — self-gated at compile time; see [Playerbots Support](#playerbots-support).
 4. **Client Companion** (`client_addon/`) — `EchoesOfTheWorldsoulBridge`,
    the graphical player-facing UI and client/server protocol client. This
-   is one of the two files an ordinary player installs.
+   is one of the two client-side components an ordinary player installs.
 5. **Client Data Patch** (`dbc_patch/`, generated as `patch-E.MPQ`) — the
    custom `Item.dbc` records required to resolve Echoes' custom items
-   (900010/900011). This is the other file an ordinary player installs.
+   (900010/900011). This is the other client-side component an ordinary
+   player installs.
 6. **Installer / Deployment** (`installer/`) — server-owner lifecycle
    tooling only: SQL migrations, manifest, backups,
    install/verify/upgrade/repair/uninstall, and generating the Client
