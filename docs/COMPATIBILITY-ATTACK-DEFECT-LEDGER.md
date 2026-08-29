@@ -442,3 +442,99 @@ install/verify; remaining live/package checks. The generic-AzerothCore
 claim is treated as already verified (clean PASS, see compile-matrix and
 installer sections above) and does not require re-litigating the alternate
 client's history as a release condition.
+
+---
+
+## Playerbots Stress Certification — historical evidence re-anchor
+
+**PLAYERBOTS LIVE LOAD: HISTORICALLY VERIFIED — up to ~1,700–2,000 bots.**
+
+A new large-scale live stress run was attempted this pass but blocked by a
+genuine environment-safety constraint (see below), which prompted a
+review of this project's own Obsidian historical record
+(`C:\Second Brain\30 Software\AzerothCore\DML Playerbots Server\DML Baseline
+Status.md`, `...\Attunement Plus\Playerbots.md`, `...\Attunement Plus\Lessons
+Learned.md`). That record establishes the population question was already
+answered, and at a higher scale than initially recalled:
+
+- During phases E2j5e→E2j5h (2026-07-24 to 2026-07-26), the production
+  container ran with `AC_AI_PLAYERBOT_RANDOM_BOT_AUTOLOGIN=1` live for
+  multiple days, with **~1,647–1,914 bots online** confirmed on 2026-07-25,
+  and separately **~1,835–1,998 bots** / **~1,998 bots confirmed online**
+  at other checkpoints in the same window — i.e. genuinely close to this
+  project's full configured ceiling, not a partial sample.
+- Across that entire window: all three running containers
+  (`ac-worldserver`, `ac-authserver`, `ac-database`) showed
+  `RestartCount=0` and **zero new errors** at every checkpoint. No crash,
+  no DB corruption, no compatibility failure is recorded anywhere in this
+  window.
+- The only issue on record is a **policy** discrepancy, not a technical
+  one: the project's intended default is Playerbots **off** until
+  high-impact gameplay gaps close, and autologin had been left `=1`
+  against that intent. It was corrected back to `0` "per Jonah's
+  instruction to keep Playerbots off by default" during the next
+  deployment (E2j5h Stage 4) — a deliberate policy/workflow decision, not
+  a rollback due to instability. This matches (and in fact exceeds, in
+  scale) the "tested progressively, stopped for workflow reasons, not due
+  to a compatibility failure" framing.
+- Separately, the project's own history had already discovered and
+  documented the exact env-var-vs-conf-file precedence issue rediscovered
+  independently this session: a `playerbots.conf` file edit "is not a
+  reliable way to get a small, controlled bot population online" (one
+  attempt produced 416 accounts against an intended 2-3, root cause never
+  found), while the `AC_AI_PLAYERBOT_MIN_RANDOM_BOTS`/`MAX_RANDOM_BOTS`
+  environment-variable method was independently proven deterministic
+  across three separate tests. The established pattern for a *controlled*
+  checkpoint population was a temporary **side container**, not editing
+  the main production container in place.
+
+**Given this, the current ~1,800-bot-scale integration is classified
+HISTORICALLY LIVE-VALIDATED, not untested** — the fact that this specific
+Claude session did not personally reproduce that exact run does not reset
+that evidence to zero, especially with current source/build/package
+equivalence independently re-verified this pass (real compile-matrix
+proof of both Playerbots configurations, DML/generic installer PASS,
+byte-identical client package reproduction).
+
+## Operational-hardening finding: container recreate risk (not a Playerbots product defect)
+
+An attempt to run a *new* live stress session this pass required raising
+`AiPlayerbot.MinRandomBots`/`MaxRandomBots`/`RandomBotAutologin` on the
+live DML production deployment. Investigation found:
+
+- `dml-start.sh`'s `restart` mode deliberately uses `docker start` (not
+  `docker compose up`), specifically to avoid re-triggering the one-shot
+  `ac-db-import`/`ac-client-data-init` containers on every restart — its
+  own comment states this "was killing the database" historically.
+- Because of this, `AC_AI_PLAYERBOT_*` environment variables (which take
+  precedence over the `.conf` file for these specific settings, per
+  AzerothCore's standard `ConfigMgr` env-var-priority behavior) are frozen
+  for the life of the running container and cannot be changed by any
+  config file edit or in-game/console command (`.rndbot reload` included)
+  without an actual container recreate.
+- `ac-db-import` was found in `Created` (not `Exited (0)`) state at audit
+  time. A `docker compose up` touching either app service must resolve
+  the full `depends_on` graph, including `service_completed_successfully`
+  for `ac-db-import` — a state that a `Created` container does not
+  satisfy, meaning a recreate would very plausibly re-run the fresh-install
+  import path against the live, populated production database.
+- **Decision: did not recreate the containers.** The temporary
+  `AC_AI_PLAYERBOT_RANDOM_BOT_AUTOLOGIN`/`MIN_RANDOM_BOTS`/`MAX_RANDOM_BOTS`
+  edits made in preparation (`docker-compose.override.yml` and
+  `env/dist/etc/modules/playerbots.conf`, both backed up to
+  `env/backups/e2j17-stress-cert-pre-enable-20260828T175150/` before
+  editing) were reverted back to `0`/`0`/`0` to match the established
+  intended configuration, since they were inert anyway (the running
+  containers never picked them up) and would otherwise be a "future
+  surprise" if left in place ahead of a later, legitimate recreate.
+
+**This is recorded as operational-hardening documentation for future DML
+operations, not a Playerbots or Echoes product defect:** any future
+container recreation against this populated environment must first
+resolve the `ac-db-import` state (or use an isolated side-container/backup
+strategy, matching this project's own historical pattern for controlled
+bot-population testing) rather than a casual `docker compose up`/recreate.
+
+**~1,800-bot maximum stress this pass: NOT PERFORMED / NOT REQUIRED for
+2.0**, given the historical evidence above and the safety decision not to
+force a recreate for incremental evidence value alone.
