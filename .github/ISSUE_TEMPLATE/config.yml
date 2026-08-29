@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions / "will this work for me?" / general discussion
+    url: https://github.com/vibecoder99-cmd/echoes-of-the-worldsoul/discussions
+    about: Use Discussions for questions and general conversation rather than an Issue.
+  - name: Feature Request
+    url: https://github.com/vibecoder99-cmd/echoes-of-the-worldsoul/discussions/new?category=ideas
+    about: Propose a new feature or change. Open an Issue instead if it's already well-scoped.

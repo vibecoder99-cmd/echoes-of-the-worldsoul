@@ -1,6 +1,6 @@
-name: Compatibility Report
-description: Report install results, compatibility issues, or environment-specific problems for Echoes of the Worldsoul.
-title: "[Compatibility]: "
+name: Bug / Installation / Compatibility Report
+description: Report install/upgrade problems, compatibility issues, Playerbots integration issues, Client Companion/UI bugs, or environment-specific problems.
+title: "[Bug]: "
 labels: ["compatibility"]
 body:
   - type: markdown
@@ -54,6 +54,40 @@ body:
       options:
         - Fresh AzerothCore DB
         - Existing/customized DB
+        - Unsure
+    validations:
+      required: false
+
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: Install method
+      options:
+        - installer (echoes.sh/echoes.ps1)
+        - Manual (copied files by hand)
+        - Unsure
+    validations:
+      required: false
+
+  - type: dropdown
+    id: layout
+    attributes:
+      label: AzerothCore layout
+      description: "Traditional single-root, or split Docker/DML-style (--lua-root/--config-root)?"
+      options:
+        - Single-root (traditional)
+        - Split Docker/DML-style
+        - Unsure
+    validations:
+      required: false
+
+  - type: dropdown
+    id: playerbots
+    attributes:
+      label: Playerbots present?
+      options:
+        - "Yes, mod-playerbots is present"
+        - "No"
         - Unsure
     validations:
       required: false
