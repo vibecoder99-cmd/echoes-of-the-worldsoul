@@ -147,7 +147,7 @@ def test_legacy_release_converges_to_current():
             azerothcore_root=legacy_root, mysql_args=args,
             characters_database="acore_characters_v160test", world_database="acore_world_v160test",
         )
-        result = upgrade_mod.upgrade(upgrade_opts, target_product_version="1.7.1")
+        result = upgrade_mod.upgrade(upgrade_opts, target_product_version="2.0.0-rc1")
         check("upgrade from real v1.6.0-rc1 tree succeeds", result is not None)
         check("upgrade recorded previous_manifest_present=False for the legacy install",
               result["previous_manifest_present"] is False)

@@ -32,9 +32,9 @@ struct EchoesConfig
     uint32 presenceRecheckMinutes = 10;
 
     // Compatible Echoes schema/runtime version prefix. Kept as a simple
-    // prefix match (e.g. "1.6.") rather than exact-string, so patch
+    // prefix match (e.g. "2.0.") rather than exact-string, so patch
     // releases remain compatible without a config change.
-    std::string compatibleVersionPrefix = "1.6.";
+    std::string compatibleVersionPrefix = "2.0.";
 
     // --- Layer 2 (E2i4 prototype): KEEP_IN_BAG / PROTECT_FROM_DISPOSITION ---
 

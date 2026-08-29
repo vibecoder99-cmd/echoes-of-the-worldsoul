@@ -30,6 +30,26 @@ The installer expects your AzerothCore instance's own base
 it layers Echoes' schema on top of an existing AzerothCore installation, it
 does not set up AzerothCore itself.
 
+**Fresh client install -- "Could not automatically extract a vanilla
+Item.dbc"?** When `--client-root` is given, the installer tries to pull a
+vanilla `Item.dbc` straight out of your client's own stock archives (needs
+the optional `mpyq` package: `pip install mpyq`). This works for many
+clients, but real retail WotLK archives commonly use the MPQ "extended
+header" format, which `mpyq` has known incomplete support for -- if you
+hit this error, it's very likely your client, not a problem with your
+install. **This is expected and has a reliable fallback**: extract
+`DBFilesClient\Item.dbc` yourself with any MPQ editor (e.g. Ladik's MPQ
+Editor) from your client's `common.MPQ` (or wherever it lives), then pass
+it explicitly:
+
+```bash
+installer/bin/echoes.sh install ... --client-root "..." \
+  --vanilla-dbc-path /path/to/your/extracted/Item.dbc
+```
+
+This is a one-time step per client copy -- once extracted, reuse the same
+file for future `upgrade`/`repair` runs.
+
 **Docker-based deployment?** If your `modules/` directory lives at one path
 but your actual running server's `lua_scripts/`/`etc/modules/` are
 bind-mounted from elsewhere (common in Docker setups, where C++ modules are

@@ -6,7 +6,7 @@
 -- ============================================================
 -- EchoesOfTheWorldsoulBridge.lua
 -- Echoes of the Worldsoul â€” Client AddOn (WoW 3.3.5a / Interface 30300)
--- Version: 1.5.2
+-- Version: 2.0.0-rc1
 -- ============================================================
 -- HOW THE BRIDGE WORKS (read this before editing):
 --

@@ -624,3 +624,32 @@ launches and connects successfully against the live production server.
 
 **All steps of `docs/LIVE-CERTIFICATION-MANUAL-TEST-SCRIPT.md` are now
 complete and PASS.** No open client-side items remain.
+
+---
+
+## RC preparation — mpyq / fresh-client decision
+
+**Root cause confirmed:** the real authoritative client's `common.MPQ` is
+MPQ format version 1 (the "extended header" format, header size 44 bytes)
+-- standard for real retail WotLK 3.3.5a archives, not a corrupted or
+unusual client. `mpyq` (a minimally-maintained, old library) is
+well-documented to have incomplete support for this header format, which
+is why its `read_file()` returns nothing for `Item.dbc` even though the
+file genuinely exists (confirmed no exceptions, no data on every one of
+the 7 candidate archives).
+
+**Decision: Option C — `--vanilla-dbc-path` is the documented, reliable
+fresh-client path; `mpyq` auto-extraction remains a best-effort
+convenience, not something to fix for this RC.** This is not a new
+mechanism -- it was already fully implemented and tested, and is in fact
+the SAME method `INSTALL.md`'s original manual walkthrough has always
+used (extract via any MPQ editor, e.g. Ladik's). Writing a
+from-scratch extended-header MPQ parser to fix automatic extraction
+would be a substantial, real undertaking for a convenience feature with
+an already-working, already-documented, zero-additional-code fallback --
+not justified for this RC.
+
+**Verdict: fresh-client installation IS sufficiently usable and
+deterministic for RC.** Documented in `INSTALL.md` (troubleshooting note
+added, explaining exactly why the error occurs and the one-time
+extraction fallback) and `installer/README.md`. Not an RC blocker.

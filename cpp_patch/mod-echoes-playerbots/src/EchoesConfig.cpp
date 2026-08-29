@@ -22,7 +22,7 @@ void EchoesConfig::Load()
         ClampU32(sConfigMgr->GetOption<uint32>("EchoesPlayerbots.PresenceRecheckMinutes", 10), 1, 1440);
 
     compatibleVersionPrefix =
-        sConfigMgr->GetOption<std::string>("EchoesPlayerbots.CompatibleVersionPrefix", "1.6.");
+        sConfigMgr->GetOption<std::string>("EchoesPlayerbots.CompatibleVersionPrefix", "2.0.");
 
     // Layer 2 (E2i4 prototype)
     layer2Enabled = sConfigMgr->GetOption<bool>("EchoesPlayerbots.Layer2.Enable", false);

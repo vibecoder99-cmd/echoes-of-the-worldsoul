@@ -26,7 +26,7 @@ AP = AP or {}
 --   MAJOR: breaking schema changes or removed features
 -- The server package version is independent of the client AddOn version.
 -- ============================================================
-AP.VERSION = "1.7.1"
+AP.VERSION = "2.0.0-rc1"
 
 -- ============================================================
 -- CAPABILITY FLAGS

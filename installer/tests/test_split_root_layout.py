@@ -315,7 +315,7 @@ def test_upgrade_split_root_legacy_pre_manifest():
             characters_database="acore_characters", world_database="acore_world",
             lua_root=dist_root, config_root=dist_root,
         )
-        result = upgrade_mod.upgrade(opts, target_product_version="1.7.1")
+        result = upgrade_mod.upgrade(opts, target_product_version="2.0.0-rc1")
         check("split upgrade: previous_manifest_present False", result["previous_manifest_present"] is False)
 
         with open(os.path.join(dist_root, "lua_scripts", "ap_core.lua")) as f:

@@ -9,10 +9,12 @@ deepen the longer you stay.
 
 ## Feedback / Compatibility Reports
 
-Echoes of the Worldsoul is under active development toward a 2.0 release.
-This package now includes a graphical Client Companion AddOn and optional
-Playerbots integration in addition to everything `v1.6.0-rc1` shipped;
-compatibility verification for this expanded scope is still in progress.
+This is the Echoes of the Worldsoul 2.0 release candidate. Compatibility
+verification is complete: the graphical Client Companion AddOn and optional
+Playerbots integration added since `v1.6.0-rc1` have both been verified
+against a real clean-room compile matrix, the public installer, and a live
+DML-compatible deployment. See `docs/COMPATIBILITY-ATTACK-DEFECT-LEDGER.md`
+for the full evidence record.
 
 Compatibility reports and balance feedback are welcome through
 [GitHub Issues](https://github.com/vibecoder99-cmd/echoes-of-the-worldsoul/issues/new/choose).

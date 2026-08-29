@@ -411,17 +411,17 @@ def test_repair_and_uninstall_and_upgrade():
             azerothcore_root=ac_root, mysql_args=mysql_args,
             characters_database="acore_characters", world_database="acore_world",
         )
-        upgrade_result = upgrade_mod.upgrade(opts, target_product_version="1.7.1")
+        upgrade_result = upgrade_mod.upgrade(opts, target_product_version="2.0.0-rc1")
         check("upgrade: previous_manifest_present False for legacy install",
               upgrade_result["previous_manifest_present"] is False)
-        check("upgrade: target_version recorded", upgrade_result["target_version"] == "1.7.1")
+        check("upgrade: target_version recorded", upgrade_result["target_version"] == "2.0.0-rc1")
         with open(os.path.join(legacy_lua_dir, "ap_core.lua")) as f:
             content = f.read()
         check("upgrade: legacy placeholder content replaced with current source",
               "v1.6.0-style placeholder" not in content)
         m = manifest_mod.load(ac_root)
         check("upgrade: manifest now exists and records product_version",
-              m is not None and m.get("product_version") == "1.7.1")
+              m is not None and m.get("product_version") == "2.0.0-rc1")
 
         # --- Playerbots matrix: present + with_playerbots, no confirmation -> disabled ---
         opts_pb = install.InstallOptions(

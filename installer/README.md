@@ -35,8 +35,10 @@ python installer/cli.py install \
     --characters-database acore_characters --world-database acore_world
 
 # ...plus Client Companion + patch-E.MPQ (auto-extracts vanilla Item.dbc
-# from the client's own stock archives; falls back to --vanilla-dbc-path
-# if that fails)
+# from the client's own stock archives via the optional mpyq package;
+# many real retail clients use an MPQ "extended header" format mpyq
+# doesn't fully support -- if extraction fails, extract Item.dbc yourself
+# with any MPQ editor and pass --vanilla-dbc-path instead, see INSTALL.md)
 python installer/cli.py install \
     --azerothcore-root /path/to/azerothcore \
     --mysql-user root --mysql-password '...' \

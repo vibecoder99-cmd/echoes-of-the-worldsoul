@@ -59,9 +59,9 @@ EchoesPlayerbots.PresenceRecheckMinutes = 10
 #                     a way that should gate this integration -- it is deliberately configurable
 #                     per-install rather than hardcoded, so an operator running a patched/forked
 #                     schema can adjust it without a rebuild.
-#       Default:    "1.7."
+#       Default:    "2.0."
 #
-EchoesPlayerbots.CompatibleVersionPrefix = "1.7."
+EchoesPlayerbots.CompatibleVersionPrefix = "2.0."
 
 ###################################################################################################
 # Layer 2 prototype (E2i4) - KEEP_IN_BAG / PROTECT_FROM_DISPOSITION only.
