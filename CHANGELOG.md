@@ -12,6 +12,32 @@ formal versioning and are kept as-is for context.
 
 ---
 
+## 2.0.0-rc1 — Client Companion, Playerbots Integration & Installer
+
+- Added the production Client Companion AddOn (`EchoesOfTheWorldsoulBridge`):
+  graphical Dashboard, Progression, Talents, World Threat, Crucible, Rack,
+  Legacy Forge, Visage, Codex/Search, Settings, and Accessibility panels,
+  backed by a versioned client/server protocol
+- Added optional Playerbots integration (`mod-echoes-playerbots`):
+  awareness, retention, Rack interaction, bounded progression spending,
+  and gated Dissolution for Playerbots-driven characters -- compile-time
+  self-gated (`#ifdef MOD_PLAYERBOTS`), verified by an actual compiled
+  build in both Playerbots-present and Playerbots-absent configurations
+- Promoted `mod-echoes-stats` to a required engine-level stat/Crucible
+  effect application module
+- Added the `installer/` package: tracked install/verify/upgrade/repair/
+  uninstall commands, a JSON manifest, automatic backup-before-mutate,
+  and support for split Docker/DML-style runtime layouts
+  (`--lua-root`/`--config-root`)
+- Renamed the client patch namespace from `patch-4.MPQ` to `patch-E.MPQ`
+  (Echoes' own reserved slot), with automatic legacy migration
+- Consolidated SQL schema evolution into idempotent, guarded migrations
+  (`sql/schema/`), removing the separate numbered-migration-file model
+- Extensive compatibility verification: real clean-room C++ compile
+  matrix, live DML deployment certification, and historical Playerbots
+  load validation at ~1,700-2,000 concurrent bots -- see
+  `docs/COMPATIBILITY-ATTACK-DEFECT-LEDGER.md`
+
 ## 1.6.0 — Tier 6: Public API & Extension Readiness
 
 - Added `AP.API` namespace with 17 stable read-only functions for querying player progression

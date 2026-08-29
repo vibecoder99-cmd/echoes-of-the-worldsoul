@@ -50,6 +50,29 @@ installer/bin/echoes.sh install ... --client-root "..." \
 This is a one-time step per client copy -- once extracted, reuse the same
 file for future `upgrade`/`repair` runs.
 
+**Other installer commands** (all back up whatever they replace before
+touching it -- see `installer/README.md` for full detail on each):
+
+```bash
+# Optional Playerbots integration (module copied but left DISABLED unless
+# you explicitly confirm you've verified compatibility yourself):
+installer/bin/echoes.sh install ... --with-playerbots --confirm-playerbots-compatible
+
+# Update an existing installer-managed install to a newer package:
+installer/bin/echoes.sh upgrade ... --target-version 2.0.0-rc1
+
+# Restore any installer-owned file that's missing or corrupted:
+installer/bin/echoes.sh repair --azerothcore-root /path/to/your/azerothcore
+
+# Remove Echoes-owned files (database is always retained):
+installer/bin/echoes.sh uninstall --azerothcore-root /path/to/your/azerothcore
+```
+
+`mod-ale` (the Eluna Lua engine, listed under Prerequisites below) is a
+required external prerequisite the installer checks for and will refuse
+to proceed without -- if you see an installer error mentioning `mod-ale`,
+that's this same prerequisite.
+
 **Docker-based deployment?** If your `modules/` directory lives at one path
 but your actual running server's `lua_scripts/`/`etc/modules/` are
 bind-mounted from elsewhere (common in Docker setups, where C++ modules are
@@ -306,6 +329,11 @@ If all checks pass, the installation is complete.
 ---
 
 ## Updating an Existing Install
+
+**If you used the installer**, `installer/bin/echoes.sh upgrade` (see
+"Other installer commands" above) does everything below automatically,
+including detecting and migrating a pre-installer legacy layout. The
+rest of this section describes the equivalent manual process.
 
 ### SQL migrations
 
