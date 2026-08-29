@@ -1,10 +1,8 @@
 # Echoes of the Worldsoul
 
-<!-- Header artwork slot (not yet created): once branded header art exists,
-     place it at docs/images/echoes-of-the-worldsoul-header.png and add
-     <img src="docs/images/echoes-of-the-worldsoul-header.png" alt="Echoes of the Worldsoul" width="100%">
-     here, above the badges. Until then, the Dashboard screenshot in the
-     Client Companion section below is the visual hero. -->
+<p align="center">
+  <img src="docs/images/echoes-of-the-worldsoul-header.png" alt="Echoes of the Worldsoul" width="100%">
+</p>
 
 [![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
 [![Release](https://img.shields.io/badge/release-v2.0.0--rc1-orange.svg)](https://github.com/vibecoder99-cmd/echoes-of-the-worldsoul/releases/tag/v2.0.0-rc1)
@@ -22,8 +20,15 @@ project that shipped `v1.6.0-rc1`, substantially expanded since. See
 [What's New in 2.0](#whats-new-in-20) if you saw Echoes before.
 
 Open source (GPLv3), source-based install, no client modifications beyond an
-additive AddOn and DBC patch. Jump to [Quick Start](#quick-start) or the full
-[Installation Guide](INSTALL.md).
+additive AddOn and DBC patch. Jump to [Quick Start](#quick-start), the full
+[Installation Guide](INSTALL.md), [Playerbots Support](#playerbots-support),
+or [Dad's MMO Lab / DML Compatibility](#dads-mmo-lab--dml-compatibility).
+
+<p align="center">
+  <img src="docs/images/client-companion/dashboard.png" alt="Client Companion Dashboard — the central hub linking every panel" width="100%">
+  <br>
+  <em>The Client Companion Dashboard — a full graphical AddOn, not a skin over chat commands.</em>
+</p>
 
 ---
 
@@ -138,11 +143,8 @@ server-side Echoes state, with dedicated panels for:
 Dashboard · Progression · Talents · World Threat · Crucible · Attunement
 Rack · Legacy Forge · Visage · Codex/Search · Settings · Accessibility
 
-<p align="center">
-  <img src="docs/images/client-companion/dashboard.png" alt="Client Companion Dashboard — the central hub linking every panel" width="100%">
-  <br>
-  <em>The Dashboard: the hub every other panel opens from.</em>
-</p>
+The Dashboard hero image near the top of this README is this AddOn — here's
+a closer look at a few of its other panels:
 
 <table>
 <tr>
