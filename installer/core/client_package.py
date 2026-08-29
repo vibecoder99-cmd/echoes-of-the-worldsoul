@@ -1,11 +1,14 @@
 # Copyright (C) 2025-2026 vibecoder99
 # Licensed under the GNU General Public License v3.0 or later.
 # See LICENSE for the full text.
-"""`echoes client-package` -- produce a distributable Client Companion
-bundle from the public repo's own current source. No Blizzard client data
-included; patch-E.MPQ (Echoes' reserved client-patch slot -- see
-installer/core/mpq_conflict.py) is either built (if the caller supplies a
-vanilla Item.dbc) or left as an instructed manual step.
+"""`echoes client-package` -- produce the Echoes player-side bundle.
+
+The repository itself does not ship Blizzard client data. If the caller
+supplies their own compatible vanilla Item.dbc, this command can generate
+patch-E.MPQ (Echoes' reserved client-patch slot -- see
+installer/core/mpq_conflict.py) from that operator-supplied client data
+and include the generated patch in the output. If no Item.dbc is
+supplied, only the AddOn plus patch-build instructions are produced.
 """
 
 import os
@@ -25,10 +28,14 @@ def _read_toc_version(toc_path):
 
 
 def build(output_dir, vanilla_dbc_path=None):
-    """Returns a dict describing the produced artifact. Never includes
-    Blizzard source data -- if vanilla_dbc_path is omitted, the artifact
-    contains build_patch_mpq.py plus instructions instead of a
-    pre-built MPQ."""
+    """Returns a dict describing the produced artifact.
+
+    If vanilla_dbc_path is omitted, no generated MPQ or client data is
+    included -- the artifact contains build_patch_mpq.py plus
+    instructions instead. If vanilla_dbc_path is supplied, a generated
+    patch-E.MPQ is produced from the caller's own Item.dbc and included
+    in the output; that generated MPQ does contain client data derived
+    from the caller-supplied file."""
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     addon_src = os.path.join(repo_root, "client_addon", "EchoesOfTheWorldsoulBridge")
     toc_path = os.path.join(addon_src, "EchoesOfTheWorldsoulBridge.toc")
