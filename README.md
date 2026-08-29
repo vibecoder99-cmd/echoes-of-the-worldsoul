@@ -1,5 +1,11 @@
 # Echoes of the Worldsoul
 
+<!-- Header artwork slot (not yet created): once branded header art exists,
+     place it at docs/images/echoes-of-the-worldsoul-header.png and add
+     <img src="docs/images/echoes-of-the-worldsoul-header.png" alt="Echoes of the Worldsoul" width="100%">
+     here, above the badges. Until then, the Dashboard screenshot in the
+     Client Companion section below is the visual hero. -->
+
 [![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
 [![Release](https://img.shields.io/badge/release-v2.0.0--rc1-orange.svg)](https://github.com/vibecoder99-cmd/echoes-of-the-worldsoul/releases/tag/v2.0.0-rc1)
 [![AzerothCore](https://img.shields.io/badge/AzerothCore-3.3.5a-informational.svg)](https://github.com/azerothcore/azerothcore-wotlk)
@@ -132,11 +138,47 @@ server-side Echoes state, with dedicated panels for:
 Dashboard · Progression · Talents · World Threat · Crucible · Attunement
 Rack · Legacy Forge · Visage · Codex/Search · Settings · Accessibility
 
-No current, authoritative in-game screenshots of the accepted Client
-Companion were available to include in this pass — only pre-implementation
-design mockups exist locally, which this README deliberately does not use
-(they don't reflect what actually shipped). A screenshot gallery may follow
-in a later documentation update.
+<p align="center">
+  <img src="docs/images/client-companion/dashboard.png" alt="Client Companion Dashboard — the central hub linking every panel" width="100%">
+  <br>
+  <em>The Dashboard: the hub every other panel opens from.</em>
+</p>
+
+<table>
+<tr>
+<td width="50%">
+<img src="docs/images/client-companion/talents.png" alt="Worldsoul Talents panel">
+<br><em>Worldsoul Talents</em>
+</td>
+<td width="50%">
+<img src="docs/images/client-companion/crucible.png" alt="The Crucible panel">
+<br><em>The Crucible</em>
+</td>
+</tr>
+<tr>
+<td width="50%">
+<img src="docs/images/client-companion/attunement-rack.png" alt="Attunement Rack panel">
+<br><em>Attunement Rack</em>
+</td>
+<td width="50%">
+<img src="docs/images/client-companion/legacy-forge.png" alt="Legacy Forge panel">
+<br><em>Legacy Forge</em>
+</td>
+</tr>
+<tr>
+<td width="50%">
+<img src="docs/images/client-companion/visage.png" alt="Worldsoul Visage panel">
+<br><em>Visage</em>
+</td>
+<td width="50%">
+<img src="docs/images/client-companion/world-threat.png" alt="World Threat panel">
+<br><em>World Threat</em>
+</td>
+</tr>
+</table>
+
+All 12 panels, in order, with short descriptions:
+**[docs/CLIENT_COMPANION_GALLERY.md](docs/CLIENT_COMPANION_GALLERY.md)**.
 
 ---
 
@@ -407,19 +449,30 @@ See [SECURITY.md](SECURITY.md) for how to report a security-relevant issue
 
 ## Acknowledgments
 
-Inspired by the attunement concept present in **Synastria** private server
-progression systems. This implementation is independent — written from
-scratch for AzerothCore with its own design, database schema, Lua
-architecture, and feature set.
+Echoes was originally inspired by the item-attunement system of the
+**Synastria** WoW private server, and later by **Peloria**'s more recent
+approach to permanent item-based progression. Echoes is independently
+implemented from scratch for AzerothCore — its own design, database
+schema, Lua architecture, and feature set. No affiliation with or
+endorsement by either project is claimed. The motivation is simple: make
+this style of permanent, gear-driven progression available to anyone
+running their own AzerothCore environment, not just players of those
+specific servers.
 
 Developed with the assistance of **Claude** (Anthropic) as an AI pair
 programmer.
 
-Special thanks to **Pramm**, Level 80 Orc Warrior, who endured every crash,
-exploit, and item-loss incident this project produced and is still
-standing — and to the many short-lived Orc Warrior clones created, tested,
-and deleted in his shadow, whose sacrifices were no less essential and
-whose names history does not record.
+Special thanks to **PRAN**, Level 80 Orc Warrior, who endured every crash,
+exploit, and item-loss incident this project produced during the original
+Eluna-era test campaign and is still standing — and to the many
+short-lived Orc Warrior clones created, tested, and deleted in his shadow,
+whose sacrifices were no less essential and whose names history does not
+record.
+
+And to **BRUS**, Level 4 Human Warrior, principal live test character of
+the compatibility-hardening, Dad's MMO Lab, Playerbots, and Client
+Companion era — proof that you don't need to be high level to do
+important, dangerous work.
 
 ---
 
