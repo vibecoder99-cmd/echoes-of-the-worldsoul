@@ -610,3 +610,17 @@ launches and connects successfully against the live production server.
   controlled fresh-launch observation (no `/reload`), to resolve
   naturally within normal client texture-load time — not a defect, no
   code change made or needed.
+- **Dashboard, Progression, World Threat, Crucible, Rack, Forge,
+  Codex/Search, Settings/Accessibility: PASS.** All remaining Client
+  Companion routes from the manual test script confirmed opening and
+  populating state correctly, live, against the package-installed
+  patch-E.MPQ/AddOn on the authoritative DML client.
+- **Item resolution (900010/900011): PASS.** Both Worldsoul Echo
+  Fragment and Worldsoul Residue resolve with real names/icons under the
+  live patch-E.MPQ, confirmed on the authoritative client.
+- **One non-destructive server-backed action: PASS.** Full round trip
+  (request → protocol → server → response → client) confirmed working
+  against the package-installed deployment.
+
+**All steps of `docs/LIVE-CERTIFICATION-MANUAL-TEST-SCRIPT.md` are now
+complete and PASS.** No open client-side items remain.
