@@ -20,15 +20,45 @@ project that shipped `v1.6.0-rc1`, substantially expanded since. See
 [What's New in 2.0](#whats-new-in-20) if you saw Echoes before.
 
 Open source (GPLv3), source-based install, no client modifications beyond an
-additive AddOn and DBC patch. Jump to [Quick Start](#quick-start), the full
-[Installation Guide](INSTALL.md), [Playerbots Support](#playerbots-support),
-or [Dad's MMO Lab / DML Compatibility](#dads-mmo-lab--dml-compatibility).
+additive AddOn and DBC patch.
+
+**Are you...**
+
+- **Joining a server that runs Echoes?** → [Joining an Echoes Server](#joining-an-echoes-server)
+- **Setting Echoes up on your own server?** → [Installing Echoes on Your Server](#installing-echoes-on-your-server)
+- **Upgrading an existing Echoes install?** → [Upgrading from v1.6.0-rc1](#upgrading-from-v160-rc1--older-echoes-installs)
+- **Running (or curious about) Playerbots?** → [Playerbots Support](#playerbots-support)
+- **Want to see it before installing anything?** → [Client Companion Gallery](docs/CLIENT_COMPANION_GALLERY.md)
 
 <p align="center">
   <img src="docs/images/client-companion/dashboard.png" alt="Client Companion Dashboard — the central hub linking every panel" width="100%">
   <br>
   <em>The Client Companion Dashboard — a full graphical AddOn, not a skin over chat commands.</em>
 </p>
+
+---
+
+## Joining an Echoes Server
+
+Running an Echoes server is the technical part. Playing on one shouldn't be.
+
+If you're joining someone else's Echoes-enabled server, you do **not** need
+AzerothCore, MySQL, `mod-ale`, Docker, or this project's installer. You need:
+
+1. Your own compatible **WoW 3.3.5a (build 12340)** client — the same one
+   you'd use for any AzerothCore-based server.
+2. The small **Echoes client package** the server provides you: the
+   `EchoesOfTheWorldsoulBridge` AddOn and a `patch-E.MPQ` file.
+3. The server's realmlist/address, from whoever runs it.
+
+Drop those two pieces into your client, point your realmlist at the server,
+and log in. That's the entire player-side setup — see
+**[docs/PLAYER_SETUP.md](docs/PLAYER_SETUP.md)** for exact folder paths and
+troubleshooting.
+
+**No custom `Wow.exe`. No bundled or repacked WoW client. No Echoes server
+installer. No database or server setup of any kind.** Everything past this
+section is for people running the server itself, not people playing on one.
 
 ---
 
@@ -184,7 +214,11 @@ All 12 panels, in order, with short descriptions:
 
 ---
 
-## Quick Start
+## Installing Echoes on Your Server
+
+**This section is for server owners/operators building and running Echoes,
+not for players joining a server that already has it — see
+[Joining an Echoes Server](#joining-an-echoes-server) instead if that's you.**
 
 **Prerequisites:** an AzerothCore 3.3.5a checkout with `mod-ale` (Eluna,
 `LUA_VERSION=lua52`) built in, MySQL/MariaDB, and a compatible WoW 3.3.5a
@@ -199,8 +233,11 @@ installer/bin/echoes.sh install \
   --client-root "/path/to/WoW 3.3.5a.12340"
 ```
 
-- Add `--with-playerbots --confirm-playerbots-compatible` only if you run
-  mod-playerbots and have verified compatibility yourself.
+- Add `--with-playerbots --confirm-playerbots-compatible` when deploying
+  into a supported `mod-playerbots` environment. Echoes has been validated
+  against the Playerbots configuration documented for this release; custom
+  forks or unusual configurations should still be tested before production
+  use.
 - **Split Docker/DML-style deployment?** Run `echoes.sh discover
   --azerothcore-root ...` first — it detects the layout and suggests the
   right `--lua-root`/`--config-root` flags.
@@ -261,6 +298,23 @@ Echoes installs an additive client package into an existing, separately
 obtained, compatible 3.3.5a client — it does not claim that client is
 otherwise unmodified by anything else you may have installed.
 
+**From a player's perspective:** joining an Echoes server does not require
+downloading a replacement WoW executable or a full pre-modified client. You
+use your own compatible 3.3.5a client plus the small Echoes client package
+(`EchoesOfTheWorldsoulBridge` + `patch-E.MPQ`) provided by the server you're
+joining — nothing more. See [Joining an Echoes Server](#joining-an-echoes-server).
+
+**From a server owner's perspective:** `installer/bin/echoes.sh
+client-package` generates exactly that small package (the AddOn plus your
+server's `patch-E.MPQ`) for you to distribute to your players. Server
+owners should **not** distribute Blizzard's `Item.dbc`, a WoW client, a
+custom `Wow.exe`, or AzerothCore binaries — none of that is part of the
+generated package, and this project's licensing assumptions don't extend
+to any of it. Distributing the generated Echoes client package itself
+follows this project's existing documented assumptions (GPLv3 source,
+no Blizzard data included) — this section doesn't expand or reinterpret
+those.
+
 ---
 
 ## Requirements / Compatibility
@@ -304,7 +358,8 @@ Blizzard's `Item.dbc` and will not link to third-party client downloads.
 
 ## Architecture
 
-Four layers, each independently understandable:
+Six layers, each independently understandable — deliberately not blurring
+"what a player installs" with "what a server owner installs":
 
 1. **Echoes Core** (`lua_scripts/`) — the Eluna gameplay/runtime logic:
    attunement, Essence, Mastery, Crucible, Rack, Forge, World Threat,
@@ -313,9 +368,16 @@ Four layers, each independently understandable:
    compiled, engine-level stat and Crucible-effect application.
 3. **Optional Playerbots Integration** (`cpp_patch/mod-echoes-playerbots/`)
    — self-gated at compile time; see [Playerbots Support](#playerbots-support).
-4. **Client Companion + Installer** (`client_addon/`, `installer/`) — the
-   graphical AddOn, generated `patch-E.MPQ`, and the full lifecycle tooling
-   (SQL migrations, manifest, install/verify/upgrade/repair/uninstall).
+4. **Client Companion** (`client_addon/`) — `EchoesOfTheWorldsoulBridge`,
+   the graphical player-facing UI and client/server protocol client. This
+   is one of the two files an ordinary player installs.
+5. **Client Data Patch** (`dbc_patch/`, generated as `patch-E.MPQ`) — the
+   custom `Item.dbc` records required to resolve Echoes' custom items
+   (900010/900011). This is the other file an ordinary player installs.
+6. **Installer / Deployment** (`installer/`) — server-owner lifecycle
+   tooling only: SQL migrations, manifest, backups,
+   install/verify/upgrade/repair/uninstall, and generating the Client
+   Companion + `patch-E.MPQ` package server owners hand to players.
 
 ---
 
@@ -335,7 +397,7 @@ echoes-of-the-worldsoul/
 │   └── data/               world_items.sql -- custom item rows (acore_world)
 ├── dbc_patch/              patch_item_dbc.py, mpq_writer.py, build_patch_mpq.py, tooling docs
 ├── client_addon/           EchoesOfTheWorldsoulBridge WoW AddOn (Client Companion)
-├── docs/                   API.md, EXTENSIONS.md, compatibility evidence ledger
+├── docs/                   API.md, EXTENSIONS.md, PLAYER_SETUP.md, compatibility evidence ledger
 ├── .github/                Issue templates
 ├── INSTALL.md
 ├── CHANGELOG.md
@@ -425,6 +487,8 @@ error can't crash the base module.
 
 ## Getting Help
 
+- **Just joining a server?** See [Joining an Echoes Server](#joining-an-echoes-server)
+  and [docs/PLAYER_SETUP.md](docs/PLAYER_SETUP.md) first.
 - **Bugs and compatibility reports:** [GitHub Issues](https://github.com/vibecoder99-cmd/echoes-of-the-worldsoul/issues/new/choose)
   — please include your AzerothCore revision, Eluna version, OS,
   single-root/split-layout, installer-or-manual install, Playerbots
