@@ -305,15 +305,16 @@ use your own compatible 3.3.5a client plus the small Echoes client package
 joining — nothing more. See [Joining an Echoes Server](#joining-an-echoes-server).
 
 **From a server owner's perspective:** `installer/bin/echoes.sh
-client-package` generates exactly that small package (the AddOn plus your
-server's `patch-E.MPQ`) for you to distribute to your players. Server
-owners should **not** distribute Blizzard's `Item.dbc`, a WoW client, a
-custom `Wow.exe`, or AzerothCore binaries — none of that is part of the
-generated package, and this project's licensing assumptions don't extend
-to any of it. Distributing the generated Echoes client package itself
-follows this project's existing documented assumptions (GPLv3 source,
-no Blizzard data included) — this section doesn't expand or reinterpret
-those.
+client-package` generates that small package (the AddOn plus your
+server's `patch-E.MPQ`) for you to distribute to your players. The public
+source repository and release source package do not ship Blizzard's
+`Item.dbc` or a WoW client — but the `patch-E.MPQ` you generate locally is
+built from **your own** compatible `Item.dbc` and does contain that
+patched client data; it is not itself Blizzard-data-free. Server owners
+should not separately distribute a full WoW client, a custom `Wow.exe`,
+or AzerothCore binaries — none of those are produced or required by
+`client-package`. This section makes no legal claim about redistribution
+rights beyond what's stated here.
 
 ---
 
