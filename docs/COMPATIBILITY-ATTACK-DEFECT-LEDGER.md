@@ -98,6 +98,55 @@ docs/polish/minor hardening. POST-2.0 — explicitly deferred, not a defect.
   absent after upgrade, and that `mod_echoes_stats` is present in both
   the fresh-install and upgraded trees.
 
+### DEFECT-05 — installer does not model split Docker/DML-style runtime layouts
+
+- **Severity:** P2 before fix; **CLOSED after verified fix (this pass)**.
+- **Artifact:** `installer/core/install.py`, `verify.py`, `repair.py`,
+  `uninstall.py`, `manifest.py`, `discovery.py`, `cli.py`.
+- **Attack that found it:** Live E2j17 Compatibility Verification
+  certification, Step 1 (patch-E migration test) against the real
+  authoritative DML production deployment.
+- **Evidence:** `install()` assumed `modules/`, `lua_scripts/`, and `etc/`
+  all live under one `--azerothcore-root` (the traditional bare-metal
+  layout, the only shape ever exercised by this whole engagement's prior
+  compile-matrix and package-equivalent-server tests). The real live DML
+  deployment is Docker-based and splits this: C++ `modules/` is
+  build-time-only and lives at the checkout root
+  (`/home/dml/wow-server-playerbots`), while the actual live
+  `lua_scripts/` and `etc/modules/` are bind-mounted from a separate
+  runtime distribution root (`env/dist/`) with no `modules/` of its own.
+  Confirmed directly (read-only) against production: neither
+  `lua_scripts/` nor `etc/modules/` exist at the checkout root; both
+  exist under `env/dist/`; `env/dist/modules/` does not exist.
+- **User impact (pre-fix):** Running `install`/`upgrade` against this
+  layout's checkout root alone would have created a disconnected,
+  ineffective `<root>/lua_scripts/` and `<root>/etc/modules/` tree the
+  live server never reads, while the manifest still recorded them as
+  `"installer-managed"` -- actively misleading about production state,
+  not just incomplete. Caught before any file was written; the live
+  certification's Step 1 stopped rather than proceeding.
+- **Fix:** optional `--lua-root`/`--config-root` on `install`/`upgrade`,
+  defaulting to `--azerothcore-root` (every existing single-root
+  deployment is unaffected). The manifest now records the effective roots
+  actually used (`manifest.effective_roots()`, backward-compatible with
+  any manifest written before this field existed -- both default to the
+  recorded `azerothcore_root` when absent). `verify`/`repair`/`uninstall`
+  resolve components against the manifest's own recorded roots rather
+  than re-deriving from `--azerothcore-root`. `discover` detects the
+  split layout from real filesystem structure (never a personal path) and
+  suggests the correct flags -- diagnostic only, never applied
+  automatically.
+- **Status:** FIXED + VERIFIED. `installer/tests/test_split_root_layout.py`
+  (new) covers both layouts end to end -- install/verify/repair/
+  upgrade/uninstall, package-equivalence against source, manifest
+  backward-compatibility, and containment/traversal protection on the
+  split root -- all passing. The full pre-existing suite
+  (`test_installer_sandbox.py`, `attack_test.py`,
+  `test_legacy_upgrade_convergence.py`) re-ran with zero regressions.
+  `discover` was additionally run (read-only) against the real live
+  production tree and correctly identified the actual topology and
+  suggested the exact right flags.
+
 ### DEFECT-04 (minor) — module test files not wired into ctest/CMake
 
 - **Severity:** P3
@@ -332,17 +381,18 @@ docs/polish/minor hardening. POST-2.0 — explicitly deferred, not a defect.
 |---|---|
 | P0 | 0 |
 | P1 | 0 |
-| P2 | 2 (DEFECT-01, DEFECT-02) — both FIXED + VERIFIED |
+| P2 | 3 (DEFECT-01, DEFECT-02, DEFECT-05) — all FIXED + VERIFIED |
 | P3 | 2 (DEFECT-03, DEFECT-04 — both open, cosmetic) |
 | POST-2.0 | 0 new (existing deferred items unchanged) |
 
 ## Release blockers
 
-None at P0/P1. DEFECT-01 and DEFECT-02 (both P2, both specific to the
-**upgrade** path from a real prior public release, not fresh install)
-are fixed and verified by a durable regression test this pass. No open
-P2/P1/P0 defects remain. DEFECT-03 (P3, cosmetic unused import) remains
-open by design — non-blocking.
+None at P0/P1. DEFECT-01, DEFECT-02 (both P2, specific to the **upgrade**
+path from a real prior public release, not fresh install), and DEFECT-05
+(P2, split Docker/DML-style runtime layout support) are fixed and
+verified by durable regression tests. No open P2/P1/P0 defects remain.
+DEFECT-03 and DEFECT-04 (both P3, cosmetic) remain open by design —
+non-blocking.
 
 ---
 
