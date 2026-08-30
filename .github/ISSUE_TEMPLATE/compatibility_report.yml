@@ -105,6 +105,30 @@ body:
         - label: Client pack installed
         - label: Addon enabled
 
+  - type: input
+    id: other-module-repo
+    attributes:
+      label: Other module (if reporting a module combination)
+      description: "Exact repository, e.g. github.com/ZhengPeiRu21/mod-individual-progression. Leave blank if not applicable."
+    validations:
+      required: false
+
+  - type: input
+    id: other-module-commit
+    attributes:
+      label: Other module commit/version
+      description: Exact commit hash or release tag of the other module.
+    validations:
+      required: false
+
+  - type: input
+    id: client-patches
+    attributes:
+      label: Client patches installed
+      description: "e.g. patch-E.MPQ only; or patch-E.MPQ + another mod's client patch. List every non-stock patch present."
+    validations:
+      required: false
+
   - type: textarea
     id: issue
     attributes:

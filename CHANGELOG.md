@@ -12,6 +12,23 @@ formal versioning and are kept as-is for context.
 
 ---
 
+## Unreleased (post-2.0.0-rc1)
+
+- Introduced a module compatibility target matrix
+  (`docs/COMPATIBILITY.md`) distinguishing tested combinations from
+  future testing priorities, with a strict evidence-status legend —
+  none of this was present in the published `v2.0.0-rc1` artifact
+- Verified `mod-individual-progression` server-side compatibility
+  (combined build, DB coexistence, exact engine-applied stat math,
+  enchant separation, restart persistence) for the tested revision
+- Identified a client `Item.dbc` collision between Echoes' `patch-E.MPQ`
+  and `mod-individual-progression`'s optional patch-S/patch-V client
+  patches, and prototyped/validated a merged-`Item.dbc` compatibility
+  path headlessly (byte-level verification, no graphical client
+  session) — not yet packaged into an automated installer step
+
+---
+
 ## 2.0.0-rc1 — Client Companion, Playerbots Integration & Installer
 
 - Added the production Client Companion AddOn (`EchoesOfTheWorldsoulBridge`):

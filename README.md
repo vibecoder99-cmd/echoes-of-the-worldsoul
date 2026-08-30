@@ -476,6 +476,28 @@ Full evidence, methodology, and every individual finding:
 
 ---
 
+## Compatibility & Common Module Stacks
+
+Echoes is being tested against common AzerothCore and Playerbots module
+combinations rather than claiming universal module compatibility. The
+matrix below distinguishes combinations that have been empirically
+tested from modules that are only planned compatibility targets.
+
+| Module | Status |
+|---|---|
+| Playerbots (`mod-playerbots`) | **TESTED** — see [Playerbots Support](#playerbots-support) |
+| `mod-individual-progression` (`ZhengPeiRu21`, tested at commit `df10164`) | **SERVER TESTED / CLIENT MERGE REQUIRED** |
+| `mod-transmog`, `mod-autobalance`, `mod-solo-lfg`, `mod-ah-bot-plus`, `mod-aoe-loot`, `mod-challenge-modes`, `mod-progression-system`, `mod-solocraft` | TARGET — not yet tested |
+| Random-enchant / reforge-style item-mutation modules | **HIGH-RISK TARGET** |
+
+None of the TARGET entries above are compatibility claims — they're the
+priority list for what gets tested next. Full detail, exact repositories
+and commits, the mod-individual-progression client-patch requirement,
+testing methodology, and how to report your own module combination:
+**[docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)**.
+
+---
+
 ## Extension API
 
 Echoes exposes `AP.API` for future dependent modules (Empire, Prestige,
