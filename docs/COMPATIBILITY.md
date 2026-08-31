@@ -17,6 +17,12 @@ If a module combination isn't listed here at all, that means exactly one
 thing: it hasn't been evaluated yet. It is not a claim that it doesn't
 work, and it is not a claim that it does.
 
+This document covers third-party AzerothCore/Playerbots module
+compatibility specifically. For the exact upstream AzerothCore/`mod-ale`/
+Playerbots stack Echoes itself is tested against — including which
+repositories, and which commits are and aren't pinned — see
+[docs/TESTED_ENVIRONMENT.md](TESTED_ENVIRONMENT.md).
+
 ## 2. Evidence-Status Legend
 
 | Status | Meaning |
@@ -156,7 +162,7 @@ option.
 
 | Module | Category | Status | Main interaction surface |
 |---|---|---|---|
-| [`mod-playerbots`](https://github.com/liyunfan1223/mod-playerbots) | Core ecosystem / bots | **TESTED** | Attunement/progression awareness for bot-controlled characters; see §3 |
+| [`mod-playerbots`](https://github.com/mod-playerbots/mod-playerbots) | Core ecosystem / bots | **TESTED** | Attunement/progression awareness for bot-controlled characters; see §3 |
 | [`ZhengPeiRu21/mod-individual-progression`](https://github.com/ZhengPeiRu21/mod-individual-progression) | Progression / items | **SERVER TESTED / CLIENT MERGE REQUIRED** | `item_template` changes; `Item.dbc` collision in optional patch-S/V |
 | [`azerothcore/mod-transmog`](https://github.com/azerothcore/mod-transmog) | Appearance / item state | TARGET — not yet tested | Item appearance/display state; possible interaction with attunement item identity |
 | [`azerothcore/mod-autobalance`](https://github.com/azerothcore/mod-autobalance) | Scaling / solo & small-group | TARGET — not yet tested | Creature/player scaling; potential interaction with Echoes' own power stacking |

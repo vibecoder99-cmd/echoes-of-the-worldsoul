@@ -356,7 +356,7 @@ rights beyond what's stated here.
 | Component | Status | Notes |
 |---|---|---|
 | AzerothCore 3.3.5a | Required | Source checkout, buildable with CMake — a binary-only install is not sufficient |
-| `mod-ale` (Eluna) | Required | External prerequisite, not bundled. Build with `LUA_VERSION=lua52` |
+| [`azerothcore/mod-ale`](https://github.com/azerothcore/mod-ale) (ALE/Eluna) | Required | External prerequisite, not bundled. Build with `LUA_VERSION=lua52`. Not an older `mod-eluna` fork — see [Tested / Reference Environment](#tested--reference-environment) |
 | MySQL / MariaDB | Required | `acore_characters`/`acore_world`/`acore_auth` must already exist |
 | WoW 3.3.5a client (build 12340, enUS) | Required | Clean/unmodified copy — see [This Is Not a Repack](#this-is-not-a-repack) |
 | Playerbots (`mod-playerbots`) | Optional | See [Playerbots Support](#playerbots-support) |
@@ -373,6 +373,27 @@ probe you can run against your own build.
 **Known unsupported Eluna APIs** (workarounds already in place):
 `RegisterCommand`, `Player:SetStat`, `Player:IsQuestRewarded`, `HasAura`,
 `GetBagSize`, `GetFloat`, `Player:GetGMLevel`.
+
+## Tested / Reference Environment
+
+Echoes is tested with AzerothCore's current **ALE** module
+(`azerothcore/mod-ale`) — ALE is the actively-maintained AzerothCore Lua
+Engine used by the current tested setup. **Do not substitute an older
+`mod-eluna` fork** unless you know it matches your AzerothCore revision;
+a stale fork is a common cause of confusing compile errors that look like
+an Echoes problem but aren't.
+
+| Component | Tested/reference project | Notes |
+|---|---|---|
+| AzerothCore | [`azerothcore/azerothcore-wotlk`](https://github.com/azerothcore/azerothcore-wotlk) | The WotLK core Echoes is built as a module for |
+| Lua engine | [`azerothcore/mod-ale`](https://github.com/azerothcore/mod-ale) | Required by Echoes |
+| Playerbots | [`mod-playerbots/mod-playerbots`](https://github.com/mod-playerbots/mod-playerbots) + [`mod-playerbots/azerothcore-wotlk`](https://github.com/mod-playerbots/azerothcore-wotlk) | Optional Echoes integration |
+| Dad's MMO Lab | [`DadsMmoLab/dads-mmo-lab`](https://github.com/DadsMmoLab/dads-mmo-lab) | One environment Echoes has been extensively tested in — not required |
+| Echoes | this repo | — |
+
+Full stack diagram, exact known commit pins (and an honest list of what
+*isn't* pinned), and DML reproduction notes:
+**[docs/TESTED_ENVIRONMENT.md](docs/TESTED_ENVIRONMENT.md)**.
 
 ### Fresh-Client Item.dbc Note
 

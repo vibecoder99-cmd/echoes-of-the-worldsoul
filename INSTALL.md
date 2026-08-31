@@ -132,11 +132,22 @@ Before starting, confirm you have:
 - **AzerothCore 3.3.5a** — source checkout, buildable with CMake. The mod adds
   a C++ module; a binary-only install is not sufficient.
 - **Eluna Lua scripting engine, via `mod-ale`** — required, not optional.
-  Eluna is an embedded Lua scripting layer for AzerothCore; Echoes' entire
-  server-side gameplay system (`lua_scripts/`) runs on it, so without it
-  Echoes has nothing to run its logic on. It must be compiled into your
-  AzerothCore build. If you are not sure whether you have it, check for
-  `ELUNA` in your CMake configuration output, or run
+
+  Required: [`azerothcore/mod-ale`](https://github.com/azerothcore/mod-ale)
+  — use this exact repo for the tested setup. ALE ("AzerothCore Lua
+  Engine") is the actively-maintained successor to the original Eluna
+  project, now published under the AzerothCore organization itself. Do
+  not substitute an older `mod-eluna` fork unless you know it matches your
+  AzerothCore revision — see
+  [Tested / Reference Environment](README.md#tested--reference-environment)
+  and [docs/TESTED_ENVIRONMENT.md](docs/TESTED_ENVIRONMENT.md) for the
+  full tested stack.
+
+  Eluna/ALE is an embedded Lua scripting layer for AzerothCore; Echoes'
+  entire server-side gameplay system (`lua_scripts/`) runs on it, so
+  without it Echoes has nothing to run its logic on. It must be compiled
+  into your AzerothCore build. If you are not sure whether you have it,
+  check for `ELUNA` in your CMake configuration output, or run
   `installer/bin/echoes.sh discover --azerothcore-root ...`.
 - **MySQL** — access to both `acore_characters` and `acore_world` databases with
   enough privileges to run `CREATE TABLE` and `INSERT`.

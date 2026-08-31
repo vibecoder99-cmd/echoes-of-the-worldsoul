@@ -7,6 +7,29 @@ eluna` in-game will surface a fresh error if one exists). Confirm all 28
 files from `lua_scripts/` were copied — not a hand-picked subset — since
 several are foundational runtime bootstrap scripts other files depend on.
 
+## Compile errors after installing "Eluna"
+
+If you see compile failures involving old AzerothCore API names such as
+`QueryNamedResult`, first confirm you cloned the tested
+[`azerothcore/mod-ale`](https://github.com/azerothcore/mod-ale) repository
+rather than an older `mod-eluna` fork — this is a strong diagnostic clue,
+not proof of the only possible cause, but it's the first thing to rule
+out. Check, in order:
+
+1. Which exact repo you cloned (`git remote -v` in that module's folder)
+2. That it's under your AzerothCore checkout's `modules/` directory, not
+   somewhere else
+3. Your current AzerothCore revision — an old fork paired with a new
+   AzerothCore (or vice versa) can produce API-mismatch errors that look
+   identical to a missing-dependency error
+4. Only once the module's identity and AzerothCore revision are confirmed
+   correct, treat remaining errors as a genuine build/Lua-headers issue
+
+Don't jump straight to chasing missing packages or Lua header versions
+before confirming you actually have the right module in the first place
+— see [docs/TESTED_ENVIRONMENT.md](TESTED_ENVIRONMENT.md) for the exact
+tested repository.
+
 ## Lua doesn't load / Eluna errors on startup
 
 Confirm `mod-ale` is actually compiled into your build (`installer

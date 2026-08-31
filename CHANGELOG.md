@@ -34,6 +34,9 @@ formal versioning and are kept as-is for context.
   troubleshooting for new server operators and players (README.md,
   `docs/PLAYER_SETUP.md`, `INSTALL.md`), including a plain-English
   "what does Echoes install" breakdown and clearer installer help text
+- Clarified exact tested upstream repositories for ALE/AzerothCore/
+  Playerbots and added reproducible reference-environment links
+  (`docs/TESTED_ENVIRONMENT.md`)
 
 ---
 
