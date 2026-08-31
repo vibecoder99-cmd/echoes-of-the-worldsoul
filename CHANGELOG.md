@@ -30,6 +30,10 @@ formal versioning and are kept as-is for context.
   (`docs/PLAYER_SETUP.md`, `INSTALL.md`), clarifying that a full WoW
   client copy is not needed and identifying the small set of files
   worth preserving
+- Improved first-time installation guidance, setup verification, and
+  troubleshooting for new server operators and players (README.md,
+  `docs/PLAYER_SETUP.md`, `INSTALL.md`), including a plain-English
+  "what does Echoes install" breakdown and clearer installer help text
 
 ---
 

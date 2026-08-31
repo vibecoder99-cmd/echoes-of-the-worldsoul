@@ -45,9 +45,11 @@ in the README if automatic extraction failed.
 
 ## Installer error: "already exists and is not recorded as an Echoes-generated file" (patch-E conflict)
 
-An unknown `patch-E.MPQ` already exists at that path and the installer
-can't prove it's Echoes' own output -- there is no `--force` override in
-the ordinary install path. Resolve the collision by renaming/removing the
+This is an intentional safety check, not a bug: an unknown `patch-E.MPQ`
+already exists at that path and the installer can't prove it's Echoes'
+own output, so it refuses to overwrite it rather than risk destroying
+someone else's client data -- there is no `--force` override in the
+ordinary install path. Resolve the collision by renaming/removing the
 conflicting file (if you're sure it's not something else's data) or
 install without `--client-root` to skip client patching for now.
 

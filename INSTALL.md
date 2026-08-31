@@ -4,6 +4,44 @@ This guide covers a full fresh installation of Echoes of the Worldsoul on an
 AzerothCore 3.3.5a server. Follow the steps in order; each phase depends on the
 previous one completing without errors.
 
+**This page is for server owners/operators.** If you're joining someone
+else's Echoes server rather than running your own, see
+[docs/PLAYER_SETUP.md](docs/PLAYER_SETUP.md) instead — it's a much shorter
+page and you don't need anything on this one.
+
+---
+
+## What will Echoes change?
+
+**Adds:**
+
+- Two C++ modules under your AzerothCore `modules/` tree (one required,
+  one optional — see Prerequisites below), compiled into your `worldserver`
+- Server-side Lua scripts, run by your existing Eluna (`mod-ale`) engine
+- New database tables, plus two new rows in `item_template` (existing
+  AzerothCore tables are never restructured)
+- A config file for the C++ module(s), under `etc/modules/`
+- A client data patch (`patch-E.MPQ`) and an AddOn, which you distribute
+  to players — see [What does Echoes install?](README.md#what-does-echoes-install)
+  for the full breakdown
+
+**Does not do:**
+
+- Does not replace or modify AzerothCore itself — it's an add-on module,
+  not a fork
+- Does not require Playerbots — `mod-echoes-playerbots` is optional and
+  inert without it
+- Does not ship or require a full WoW client — see
+  [This Is Not a Repack](README.md#this-is-not-a-repack)
+- Does not intentionally overwrite a client patch it doesn't recognize as
+  its own — see the patch-E ownership note under Backups below
+- Does not delete progression data on uninstall — `uninstall` always
+  retains the database
+
+The installer backs up whatever it directly replaces before touching it,
+but this isn't a guarantee of perfect, one-click rollback for every
+possible environment — see Backups below for what to do yourself first.
+
 ---
 
 ## Recommended: Use the Installer
@@ -93,8 +131,13 @@ Before starting, confirm you have:
 
 - **AzerothCore 3.3.5a** — source checkout, buildable with CMake. The mod adds
   a C++ module; a binary-only install is not sufficient.
-- **Eluna Lua scripting engine** — must be compiled into your AzerothCore build.
-  If you are not sure, check for `ELUNA` in your CMake configuration output.
+- **Eluna Lua scripting engine, via `mod-ale`** — required, not optional.
+  Eluna is an embedded Lua scripting layer for AzerothCore; Echoes' entire
+  server-side gameplay system (`lua_scripts/`) runs on it, so without it
+  Echoes has nothing to run its logic on. It must be compiled into your
+  AzerothCore build. If you are not sure whether you have it, check for
+  `ELUNA` in your CMake configuration output, or run
+  `installer/bin/echoes.sh discover --azerothcore-root ...`.
 - **MySQL** — access to both `acore_characters` and `acore_world` databases with
   enough privileges to run `CREATE TABLE` and `INSERT`.
 - **Python 3.6+** — needed only for the DBC patch step. `python --version` to
@@ -122,18 +165,32 @@ because Echoes is expected to damage anything:
 - **If `Data\patch-E.MPQ` already exists on a client you distribute**,
   the installer will only rebuild it automatically if it can prove that
   file is Echoes' own prior output (by hash, against its own install
-  manifest). If it can't prove that, it blocks rather than overwriting
-  it — but you should still know what's currently in that slot before
-  you install, since a slot claimed by a different mod's client patch
-  is a real possibility, not just a hypothetical. See
+  manifest). If it can't prove that, it **blocks rather than overwriting
+  it** — this is an intentional safety measure, not a bug: a slot claimed
+  by a different mod's client patch is a real possibility, not just a
+  hypothetical, and silently overwriting someone else's client data would
+  be worse than stopping to ask. See
   [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) if you're also running
   another module with its own client patch.
 - **If you previously attempted `mod-ale` (Eluna) and aren't sure what
-  remains installed or configured**, inspect your existing
-  `modules/`/`etc/modules/` state before reinstalling blindly. Don't
-  delete anything you find without confirming it's actually unused —
-  treat an unclear prior attempt as something to investigate, not
-  something to wipe.
+  remains installed or configured, do not delete anything or reinstall
+  from scratch yet.** Inspect first, in this order:
+  1. Does `modules/mod-ale/` (or wherever you placed it) exist under your
+     `--azerothcore-root`? `installer/bin/echoes.sh discover
+     --azerothcore-root ...` reports this directly as `has_mod_ale`.
+  2. Was it actually built? Check your last `cmake`/build output for
+     `ELUNA` or `mod-ale` being compiled, not just present as source.
+  3. Are its config files present under `etc/modules/` (an `eluna.conf`
+     or similar), and do they point at a real Lua script path?
+  4. Check the worldserver's startup/module-load log for Eluna-related
+     lines or errors — `zz_eluna_probe.lua` (from this project's own
+     `lua_scripts/`) is a direct compatibility probe once Eluna is
+     confirmed loading at all.
+
+  Only remove files you've confirmed are unused leftovers from that
+  angle. This project does not provide `mod-ale`/Eluna repair guidance
+  beyond this inspection — it's an external prerequisite maintained by
+  the Eluna project, not part of Echoes.
 
 ---
 
@@ -240,6 +297,19 @@ so the client knows how to render and query them. Without this step, items
 900010 and 900011 appear as question marks and generate continuous
 `CMSG_ITEM_QUERY_SINGLE` retry loops.
 
+**If you've never built a custom client patch before:** an **MPQ** is just
+the WoW client's own archive/patch format — the same mechanism Blizzard
+itself used to ship game data. `Item.dbc` is one specific file inside it
+that describes every item in the game. This step edits a copy of that one
+file and repackages it as `patch-E.MPQ`, which the client loads
+automatically alongside its own base archives — nothing about your
+client executable or other files changes. If you (or your players) run
+other client mods, preserve their existing `patch-*.MPQ` files and don't
+rename them casually — WoW loads single-letter patches in strict
+alphabetical order, and two mods that both ship an `Item.dbc` need a
+specific merge, not just reordering, to coexist. See
+[docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) if that applies to you.
+
 **Clean client requirement:** The patch script was written against a completely
 vanilla, unmodified WoW 3.3.5a (build 12340, enUS) `Item.dbc`. If your client
 data has been modified by any other custom patch, do not run this step against
@@ -319,10 +389,11 @@ out or flagged as out-of-date, enable **Load out of date AddOns**.
 
 ---
 
-## Smoke Test Checklist
+## How do I know the server install worked?
 
-After completing all five steps, run through these checks before opening the
-server to players:
+After completing all five steps, run through this checklist before opening
+the server to players. Every item here is something you can directly
+observe — a log line, a chat response, or an in-game result:
 
 - [ ] Worldserver starts with no Eluna script errors in the log
 - [ ] Log in with a test character

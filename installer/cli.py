@@ -120,19 +120,33 @@ def cmd_uninstall(args):
 
 
 def build_parser():
-    p = argparse.ArgumentParser(prog="echoes", description="Echoes of the Worldsoul installer")
-    sub = p.add_subparsers(dest="command", required=True)
+    p = argparse.ArgumentParser(
+        prog="echoes",
+        description=(
+            "Echoes of the Worldsoul installer -- manages the server-side "
+            "install for an existing AzerothCore checkout. See INSTALL.md "
+            "for the full walkthrough, or PLAYER_SETUP.md if you're joining "
+            "someone else's server rather than running your own."
+        ),
+    )
+    sub = p.add_subparsers(dest="command", required=True, metavar="command")
 
     def add_common_ac(sp):
-        sp.add_argument("--azerothcore-root", required=True)
+        sp.add_argument(
+            "--azerothcore-root", required=True,
+            help="Path to your existing AzerothCore source checkout (the "
+                 "directory containing modules/, not a fresh empty folder -- "
+                 "this installer layers Echoes onto AzerothCore, it does not "
+                 "set AzerothCore up).",
+        )
 
     def add_common_mysql(sp):
-        sp.add_argument("--mysql-user", default="root")
-        sp.add_argument("--mysql-password", default="")
-        sp.add_argument("--mysql-host", default="127.0.0.1")
-        sp.add_argument("--mysql-port", type=int, default=3306)
-        sp.add_argument("--characters-database", default="acore_characters")
-        sp.add_argument("--world-database", default="acore_world")
+        sp.add_argument("--mysql-user", default="root", help="MySQL/MariaDB user with CREATE TABLE/INSERT privileges on the databases below.")
+        sp.add_argument("--mysql-password", default="", help="Password for --mysql-user. Leave unset if your MySQL user has no password.")
+        sp.add_argument("--mysql-host", default="127.0.0.1", help="MySQL/MariaDB host. Defaults to localhost.")
+        sp.add_argument("--mysql-port", type=int, default=3306, help="MySQL/MariaDB port. Defaults to 3306.")
+        sp.add_argument("--characters-database", default="acore_characters", help="Name of your existing AzerothCore characters database.")
+        sp.add_argument("--world-database", default="acore_world", help="Name of your existing AzerothCore world database.")
 
     def add_install_like(sp):
         add_common_ac(sp)
@@ -153,9 +167,26 @@ def build_parser():
                  "from --azerothcore-root. Same split-Docker-layout rationale as "
                  "--lua-root; defaults to --azerothcore-root.",
         )
-        sp.add_argument("--client-root", default=None)
-        sp.add_argument("--vanilla-dbc-path", default=None)
-        sp.add_argument("--with-playerbots", action="store_true")
+        sp.add_argument(
+            "--client-root", default=None,
+            help="Path to a clean, compatible WoW 3.3.5a (build 12340) client "
+                 "install. Optional -- omit it to install the server side only "
+                 "and handle client-patch packaging later.",
+        )
+        sp.add_argument(
+            "--vanilla-dbc-path", default=None,
+            help="Path to a manually-extracted, unmodified DBFilesClient\\Item.dbc. "
+                 "Only needed if automatic extraction from --client-root fails "
+                 "(a known limitation with some client archive formats -- see "
+                 "the Fresh-Client Item.dbc Note in README.md).",
+        )
+        sp.add_argument(
+            "--with-playerbots", action="store_true",
+            help="Also copy the optional mod-echoes-playerbots module. Safe even "
+                 "if you don't run Playerbots -- it compiles to a no-op without "
+                 "it. Does not by itself enable the integration; see "
+                 "--confirm-playerbots-compatible.",
+        )
         sp.add_argument(
             "--confirm-playerbots-compatible", action="store_true",
             help="Explicitly confirm you have verified Playerbots compatibility "
@@ -166,35 +197,69 @@ def build_parser():
         # non-Echoes-owned file is always blocked in the ordinary install
         # path -- see installer/core/mpq_conflict.py.
 
-    sp = sub.add_parser("install")
+    sp = sub.add_parser(
+        "install",
+        help="Fresh install: copy the C++ modules, apply SQL, deploy Lua "
+             "scripts, and (if --client-root is given) build patch-E.MPQ.",
+    )
     add_install_like(sp)
     sp.set_defaults(func=cmd_install)
 
-    sp = sub.add_parser("verify")
+    sp = sub.add_parser(
+        "verify",
+        help="Check an existing install against its recorded manifest -- "
+             "confirms nothing installer-managed is missing or modified.",
+    )
     add_common_ac(sp)
-    sp.add_argument("--mysql-user", default="root")
-    sp.add_argument("--mysql-password", default="")
-    sp.add_argument("--mysql-host", default="127.0.0.1")
-    sp.add_argument("--mysql-port", type=int, default=3306)
-    sp.add_argument("--characters-database", default=None)
+    sp.add_argument("--mysql-user", default="root", help="MySQL/MariaDB user (only needed if --characters-database is set).")
+    sp.add_argument("--mysql-password", default="", help="Password for --mysql-user.")
+    sp.add_argument("--mysql-host", default="127.0.0.1", help="MySQL/MariaDB host. Defaults to localhost.")
+    sp.add_argument("--mysql-port", type=int, default=3306, help="MySQL/MariaDB port. Defaults to 3306.")
+    sp.add_argument(
+        "--characters-database", default=None,
+        help="Also check the characters database's schema version. Omit to "
+             "verify installed files only, without a database connection.",
+    )
     sp.set_defaults(func=cmd_verify)
 
-    sp = sub.add_parser("discover")
-    sp.add_argument("--azerothcore-root", default=None)
-    sp.add_argument("--client-root", default=None)
+    sp = sub.add_parser(
+        "discover",
+        help="Inspect an AzerothCore checkout and/or WoW client and report "
+             "what the installer sees -- run this first if you're unsure "
+             "what flags to use, especially for Docker/DML-style layouts.",
+    )
+    sp.add_argument("--azerothcore-root", default=None, help="AzerothCore checkout to inspect.")
+    sp.add_argument("--client-root", default=None, help="WoW client install to inspect.")
     sp.set_defaults(func=cmd_discover)
 
-    sp = sub.add_parser("client-package")
-    sp.add_argument("--output-dir", required=True)
-    sp.add_argument("--vanilla-dbc-path", default=None)
+    sp = sub.add_parser(
+        "client-package",
+        help="Build the small AddOn + patch-E.MPQ bundle to hand to players "
+             "-- run this after install/upgrade, once you have a built "
+             "patch-E.MPQ to package.",
+    )
+    sp.add_argument("--output-dir", required=True, help="Directory to write the player-ready package into.")
+    sp.add_argument(
+        "--vanilla-dbc-path", default=None,
+        help="Path to a manually-extracted, unmodified Item.dbc, if you don't "
+             "already have a built patch-E.MPQ to package from an install.",
+    )
     sp.set_defaults(func=cmd_client_package)
 
-    sp = sub.add_parser("upgrade")
+    sp = sub.add_parser(
+        "upgrade",
+        help="Update an existing installer-managed install (or adopt a "
+             "pre-installer legacy install) to a newer Echoes package.",
+    )
     add_install_like(sp)
-    sp.add_argument("--target-version", required=True)
+    sp.add_argument("--target-version", required=True, help="Version string to record as installed, e.g. 2.0.0-rc1.")
     sp.set_defaults(func=cmd_upgrade)
 
-    sp = sub.add_parser("repair")
+    sp = sub.add_parser(
+        "repair",
+        help="Restore any installer-owned file that's missing (always) or "
+             "modified (with --restore-mismatched) from the current package.",
+    )
     add_common_ac(sp)
     sp.add_argument(
         "--restore-mismatched", action="store_true",
@@ -204,7 +269,10 @@ def build_parser():
     )
     sp.set_defaults(func=cmd_repair)
 
-    sp = sub.add_parser("uninstall")
+    sp = sub.add_parser(
+        "uninstall",
+        help="Remove Echoes-owned files. Database tables are always retained.",
+    )
     add_common_ac(sp)
     sp.set_defaults(func=cmd_uninstall)
 

@@ -22,12 +22,17 @@ project that shipped `v1.6.0-rc1`, substantially expanded since. See
 Open source (GPLv3), source-based install, no client modifications beyond an
 additive AddOn and DBC patch.
 
-**Are you...**
+## Start Here
 
-- **Joining a server that runs Echoes?** → [Joining an Echoes Server](#joining-an-echoes-server)
-- **Setting Echoes up on your own server?** → [Installing Echoes on Your Server](#installing-echoes-on-your-server)
+New to Echoes? You don't need to know what AzerothCore, Eluna, or an MPQ
+is before picking a path below — each linked page explains what it needs,
+when you get there.
+
+- **Joining a server that runs Echoes?** → [Joining an Echoes Server](#joining-an-echoes-server) / [docs/PLAYER_SETUP.md](docs/PLAYER_SETUP.md)
+- **Setting Echoes up on your own server?** → [Installing Echoes on Your Server](#installing-echoes-on-your-server) / [INSTALL.md](INSTALL.md)
 - **Upgrading an existing Echoes install?** → [Upgrading from v1.6.0-rc1](#upgrading-from-v160-rc1--older-echoes-installs)
-- **Running (or curious about) Playerbots?** → [Playerbots Support](#playerbots-support)
+- **Running Playerbots, `mod-individual-progression`, or another module alongside Echoes?** → [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)
+- **Something not working?** → [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
 - **Want to see it before installing anything?** → [Client Companion Gallery](docs/CLIENT_COMPANION_GALLERY.md)
 
 <p align="center">
@@ -48,7 +53,10 @@ AzerothCore, MySQL, `mod-ale`, Docker, or this project's installer. You need:
 1. Your own compatible **WoW 3.3.5a (build 12340)** client — the same one
    you'd use for any AzerothCore-based server.
 2. The small **Echoes client package** the server provides you: the
-   `EchoesOfTheWorldsoulBridge` AddOn and a `patch-E.MPQ` file.
+   `EchoesOfTheWorldsoulBridge` AddOn (a normal WoW AddOn — the same kind
+   you'd install for any other UI mod) and a `patch-E.MPQ` file (a small,
+   additive data patch — the client's own patch system, not a modified
+   game executable; see [What does Echoes install?](#what-does-echoes-install)).
 3. The server's realmlist/address, from whoever runs it.
 
 Drop those two pieces into your client, point your realmlist at the server,
@@ -93,6 +101,27 @@ history, and history is worth something.**
 None of this requires grouping, a guild, or any other player — it's built
 for a self-paced or solo-friendly server, though nothing stops it from
 running on a populated one.
+
+---
+
+## What does Echoes install?
+
+Echoes has both a server side and a client side. Nobody installs all of
+it — players install the two client-side rows, server owners install the
+rest.
+
+| Piece | Who installs it | Where it goes | What it does |
+|---|---|---|---|
+| `EchoesOfTheWorldsoulBridge` (Client Companion AddOn) | Players | `Interface\AddOns\` in the WoW client | Ordinary WoW AddOn — the graphical panels, tooltips, and minimap button |
+| `patch-E.MPQ` (client data patch) | Players | `Data\` in the WoW client | An additive **MPQ** (the WoW client's own archive/patch format) containing just the two custom item records Echoes needs — not a modified game executable, not a full client |
+| `mod-echoes-stats` (C++ module) | Server owners | `modules/` in the AzerothCore source tree | Required. Compiled into the server; applies attunement/Crucible stat effects at the engine level |
+| `mod-echoes-playerbots` (C++ module) | Server owners, optional | `modules/` in the AzerothCore source tree | Only relevant if you run **Playerbots** (a separate, optional AzerothCore bot module — see [Playerbots Support](#playerbots-support)). Compiles to an inert no-op without it |
+| Lua scripts (`lua_scripts/`) | Server owners | The server's Eluna script folder | Server-side gameplay logic, run by **Eluna** (`mod-ale`) — an embedded Lua scripting engine AzerothCore uses for custom server behavior without patching the core itself |
+| SQL schema (`sql/`) | Server owners | The server's MySQL/MariaDB databases | Adds Echoes' own tables plus two new item rows — never modifies existing AzerothCore tables' structure |
+
+Players never touch the server side; server owners are not required to
+distribute a full client to anyone — see
+[This Is Not a Repack](#this-is-not-a-repack) for the full detail.
 
 ---
 
@@ -223,10 +252,11 @@ All 12 panels, in order, with short descriptions:
 not for players joining a server that already has it — see
 [Joining an Echoes Server](#joining-an-echoes-server) instead if that's you.**
 
-**Prerequisites:** an AzerothCore 3.3.5a checkout with `mod-ale` (Eluna,
-`LUA_VERSION=lua52`) built in, MySQL/MariaDB, and a compatible WoW 3.3.5a
-(build 12340) client. See [Requirements](#requirements--compatibility)
-below for the full matrix.
+**Prerequisites:** an AzerothCore 3.3.5a checkout with `mod-ale` built in
+(**ALE**/**Eluna** — the embedded Lua scripting engine Echoes' server-side
+logic runs on; required, not optional, and checked for by the installer),
+MySQL/MariaDB, and a compatible WoW 3.3.5a (build 12340) client. See
+[Requirements](#requirements--compatibility) below for the full matrix.
 
 ```bash
 installer/bin/echoes.sh install \
@@ -237,10 +267,10 @@ installer/bin/echoes.sh install \
 ```
 
 - Add `--with-playerbots --confirm-playerbots-compatible` when deploying
-  into a supported `mod-playerbots` environment. Echoes has been validated
-  against the Playerbots configuration documented for this release; custom
-  forks or unusual configurations should still be tested before production
-  use.
+  alongside `mod-playerbots`. Echoes has been validated against the
+  Playerbots configuration documented for this release — check whether
+  your specific fork/configuration has been tested (not "is supported")
+  before relying on it in production; see [Playerbots Support](#playerbots-support).
 - **Split Docker/DML-style deployment?** Run `echoes.sh discover
   --azerothcore-root ...` first — it detects the layout and suggests the
   right `--lua-root`/`--config-root` flags.

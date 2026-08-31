@@ -8,9 +8,15 @@ server owners. If you're setting Echoes up on your own server, see
 
 1. Your own compatible **WoW 3.3.5a (build 12340)** client.
 2. The small Echoes client package from the server you're joining:
-   - `EchoesOfTheWorldsoulBridge` (the Client Companion AddOn)
-   - `patch-E.MPQ` (custom item data)
+   - `EchoesOfTheWorldsoulBridge` (the Client Companion AddOn — a normal
+     WoW AddOn, installed the same way as any other UI mod)
+   - `patch-E.MPQ` (custom item data, packaged as an **MPQ** — the WoW
+     client's own patch/archive format — not a modified game executable)
 3. That server's realmlist/address.
+
+If you've never installed a custom MPQ before, that's okay — Echoes only
+needs this one small client-data patch, not a full modified client, and
+the steps below cover exactly where it goes.
 
 ## Before You Install: What to Back Up
 
@@ -31,9 +37,12 @@ your whole game directory just to try Echoes.
 **If you already use custom patch files from other mods:** keep copies
 of those files and note their names before installing Echoes. Some
 modules ship overlapping client data (for example, more than one mod's
-patch can contain its own `Item.dbc`), and simply overwriting one
-patch with another can silently make one mod's custom items disappear
-client-side. See [docs/COMPATIBILITY.md](COMPATIBILITY.md) (mod-individual-progression
+patch can contain its own **DBC** — a database-like client data file,
+`Item.dbc` in this case, that describes items to the client), and
+overwriting one patch with another can silently make one mod's custom
+items disappear client-side. Check whether your specific module
+combination has been tested (not "is supported") in
+[docs/COMPATIBILITY.md](COMPATIBILITY.md) (mod-individual-progression
 section) for a concrete example of this and how it's addressed.
 
 ## Where the files go
@@ -71,6 +80,26 @@ and can't provide one.
 
 Start the client, log in, select your realm, and enable the AddOn at the
 character-select AddOns screen if it isn't already checked.
+
+---
+
+## How do I know it worked?
+
+Check these, in order, once you're logged in:
+
+- At character select, **AddOns** lists `EchoesOfTheWorldsoulBridge` and
+  it's checked (not greyed out).
+- After entering the world, a small **minimap button** for the Client
+  Companion is present.
+- Typing **`#ap`** in chat opens the Echoes of the Worldsoul dashboard
+  panel.
+- Hovering a piece of gear you've been using shows attunement progress in
+  its tooltip.
+
+If all four are true, your setup is working. If the AddOn itself never
+loads, or items look like question marks, see Troubleshooting below —
+those are the two most common first-install issues, and neither means
+something is fundamentally wrong with your client.
 
 ---
 
