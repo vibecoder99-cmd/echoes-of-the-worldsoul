@@ -12,6 +12,30 @@ server owners. If you're setting Echoes up on your own server, see
    - `patch-E.MPQ` (custom item data)
 3. That server's realmlist/address.
 
+## Before You Install: What to Back Up
+
+You usually do **not** need a full copy of your WoW client. Echoes only
+touches a small, specific set of files — back those up if they apply to
+you, and skip the rest.
+
+| Item | Back it up when | Why |
+|---|---|---|
+| `Data\patch-E.MPQ` | It already exists in your `Data\` folder | Preserves whatever currently owns that patch slot, in case it isn't from an earlier Echoes install |
+| Other custom `patch-*.MPQ` files | You already run client mods from other servers/modules | Protects existing custom client data you rely on |
+| `Interface\AddOns\EchoesOfTheWorldsoulBridge\` | You're upgrading or replacing an existing Echoes install | Lets you restore the previous AddOn if something goes wrong |
+| `realmlist.wtf` | You're about to edit it to point at a new server | Tiny file, easy to restore, no reason not to |
+
+You do **not** need to copy every stock Blizzard `.MPQ` file or duplicate
+your whole game directory just to try Echoes.
+
+**If you already use custom patch files from other mods:** keep copies
+of those files and note their names before installing Echoes. Some
+modules ship overlapping client data (for example, more than one mod's
+patch can contain its own `Item.dbc`), and simply overwriting one
+patch with another can silently make one mod's custom items disappear
+client-side. See [docs/COMPATIBILITY.md](COMPATIBILITY.md) (mod-individual-progression
+section) for a concrete example of this and how it's addressed.
+
 ## Where the files go
 
 - **`patch-E.MPQ`** → your WoW client's `Data\` folder, next to the game's

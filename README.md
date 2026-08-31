@@ -56,6 +56,9 @@ and log in. That's the entire player-side setup — see
 **[docs/PLAYER_SETUP.md](docs/PLAYER_SETUP.md)** for exact folder paths and
 troubleshooting.
 
+Low on storage? You do not need to duplicate your whole WoW client. See
+[What to back up first](docs/PLAYER_SETUP.md#before-you-install-what-to-back-up).
+
 **No custom `Wow.exe`. No bundled or repacked WoW client. No Echoes server
 installer. No database or server setup of any kind.** Everything past this
 section is for people running the server itself, not people playing on one.

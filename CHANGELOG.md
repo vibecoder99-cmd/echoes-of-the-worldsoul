@@ -26,6 +26,10 @@ formal versioning and are kept as-is for context.
   patches, and prototyped/validated a merged-`Item.dbc` compatibility
   path headlessly (byte-level verification, no graphical client
   session) — not yet packaged into an automated installer step
+- Added beginner backup guidance before client/server installation
+  (`docs/PLAYER_SETUP.md`, `INSTALL.md`), clarifying that a full WoW
+  client copy is not needed and identifying the small set of files
+  worth preserving
 
 ---
 

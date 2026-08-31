@@ -108,6 +108,35 @@ Before starting, confirm you have:
 
 ---
 
+## Before You Install: Server-Side Backups
+
+This is good operational practice for any change to a running server, not
+because Echoes is expected to damage anything:
+
+- **Take a database snapshot before running SQL** — especially if you
+  already run other custom modules or have live player data you care
+  about. Echoes' own installer backs up whatever it directly replaces
+  (see the ownership model below), but a full DB snapshot is still the
+  fastest way to roll back a schema change if something in your own
+  environment doesn't match expectations.
+- **If `Data\patch-E.MPQ` already exists on a client you distribute**,
+  the installer will only rebuild it automatically if it can prove that
+  file is Echoes' own prior output (by hash, against its own install
+  manifest). If it can't prove that, it blocks rather than overwriting
+  it — but you should still know what's currently in that slot before
+  you install, since a slot claimed by a different mod's client patch
+  is a real possibility, not just a hypothetical. See
+  [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) if you're also running
+  another module with its own client patch.
+- **If you previously attempted `mod-ale` (Eluna) and aren't sure what
+  remains installed or configured**, inspect your existing
+  `modules/`/`etc/modules/` state before reinstalling blindly. Don't
+  delete anything you find without confirming it's actually unused —
+  treat an unclear prior attempt as something to investigate, not
+  something to wipe.
+
+---
+
 ## Step 1 — Install the C++ Modules
 
 The mod ships as two full AzerothCore module source trees, not a patch file.
