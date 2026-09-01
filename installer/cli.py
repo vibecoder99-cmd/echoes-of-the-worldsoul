@@ -155,7 +155,8 @@ def build_parser():
             "--lua-root", default=None,
             help="Root containing the live lua_scripts/ directory, if different "
                  "from --azerothcore-root (e.g. a Docker/DML-style deployment's "
-                 "env/dist/ runtime distribution root). Defaults to "
+                 "env/dist/ runtime distribution root). An unambiguous split "
+                 "env/dist layout is selected automatically; otherwise defaults to "
                  "--azerothcore-root, which is correct for a traditional "
                  "bare-metal AzerothCore checkout where modules/, lua_scripts/, "
                  "and etc/ all live together. Run 'echoes discover' first if "
@@ -165,7 +166,8 @@ def build_parser():
             "--config-root", default=None,
             help="Root containing the live etc/modules/ directory, if different "
                  "from --azerothcore-root. Same split-Docker-layout rationale as "
-                 "--lua-root; defaults to --azerothcore-root.",
+                 "--lua-root; auto-selects an unambiguous split env/dist layout, "
+                 "otherwise defaults to --azerothcore-root.",
         )
         sp.add_argument(
             "--client-root", default=None,
@@ -252,7 +254,7 @@ def build_parser():
              "pre-installer legacy install) to a newer Echoes package.",
     )
     add_install_like(sp)
-    sp.add_argument("--target-version", required=True, help="Version string to record as installed, e.g. 2.1.0.")
+    sp.add_argument("--target-version", required=True, help="Version string to record as installed, e.g. 2.1.1.")
     sp.set_defaults(func=cmd_upgrade)
 
     sp = sub.add_parser(

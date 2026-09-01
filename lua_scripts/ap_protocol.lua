@@ -732,7 +732,7 @@ local function HandleAction(player, guid, tokens)
         if not okPreview or not preview or not preview.ok then SendError(player,"SERVER_ERROR",name); return end
         if preview.atMaxCapacity then SendEchoes(player,"ACTION_OK",{{"action",name},{"status","AT_MAX"}}); return end
         local residueArg=preview.residueCost and preview.residueCost>0 and preview.expectedResidue or nil
-        local ok,result=pcall(AP.API.ExecuteRackExpand,player,preview.currentSlots,preview.nextSlots,residueArg)
+        local ok,result=pcall(AP.API.ExecuteRackExpand,player,preview.currentSlots,preview.nextSlots,residueArg,preview.expectedEssence)
         if not ok or not result then SendError(player,"SERVER_ERROR",name); return end
         SendEchoes(player,"ACTION_OK",{{"action",name},{"status",result.status or (result.ok and "SUCCESS" or "REJECTED")},{"old_slots",result.oldSlots or preview.currentSlots},{"new_slots",result.newSlots or preview.nextSlots},{"cost",result.cost or preview.essenceCost or preview.residueCost or 0}})
     elseif name == "talent_preview" then

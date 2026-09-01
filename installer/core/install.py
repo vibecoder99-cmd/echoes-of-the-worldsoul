@@ -78,11 +78,16 @@ class InstallOptions:
         # actual live lua_scripts/ and etc/modules/ can be bind-mounted
         # from a separate runtime distribution root (e.g. env/dist/) that
         # has no modules/ directory of its own -- no single --azerothcore-
-        # root can represent both in that layout. Defaulting both to
-        # azerothcore_root when omitted preserves every existing
-        # single-root (bare-metal) deployment's behavior unchanged.
-        self.lua_root = lua_root if lua_root is not None else azerothcore_root
-        self.config_root = config_root if config_root is not None else azerothcore_root
+        # root can represent both in that layout. When the generic discovery
+        # signature is unambiguous, use its live env/dist root instead of
+        # silently creating disconnected source-root directories. Explicit
+        # flags remain authoritative; traditional single-root behavior is
+        # unchanged.
+        discovered = discovery.describe_azerothcore_root(azerothcore_root)
+        suggested_lua = discovered.get("suggested_lua_root")
+        suggested_config = discovered.get("suggested_config_root")
+        self.lua_root = lua_root if lua_root is not None else (suggested_lua or azerothcore_root)
+        self.config_root = config_root if config_root is not None else (suggested_config or azerothcore_root)
         self.enable_playerbots_integration = enable_playerbots_integration
         # A separate, explicit flag from enable_playerbots_integration
         # (which only copies the module) -- this one actually flips
@@ -116,8 +121,25 @@ def install(opts):
     ale = prereq.check_mod_ale(opts.azerothcore_root)
     if not ale.present:
         raise RuntimeError(ale.remediation)
+    ale_direct = prereq.check_mod_ale_direct_execute(opts.azerothcore_root)
+    if not ale_direct.present:
+        raise RuntimeError(ale_direct.remediation)
 
     m = manifest_mod.load(opts.azerothcore_root) or manifest_mod.default_manifest()
+    old_roots = manifest_mod.effective_roots(m) if m.get("azerothcore_root") else None
+    if old_roots and (old_roots["lua"] != opts.lua_root or old_roots["config"] != opts.config_root):
+        prior = {
+            "lua": old_roots["lua"],
+            "config": old_roots["config"],
+            "lua_files": dict(m.get("components", {}).get("core_lua", {}).get("files", {})),
+            "config_files": [
+                path for path, ownership in m.get("config_ownership", {}).items()
+                if ownership == "installer-managed"
+            ],
+        }
+        history = m.setdefault("prior_roots", [])
+        if not any(x.get("lua") == prior["lua"] and x.get("config") == prior["config"] for x in history):
+            history.append(prior)
     m["azerothcore_root"] = opts.azerothcore_root
     m["roots"] = {"lua": opts.lua_root, "config": opts.config_root}
     m["installed_at"] = m["installed_at"] or timestamp

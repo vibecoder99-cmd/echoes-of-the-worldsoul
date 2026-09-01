@@ -32,8 +32,30 @@ def verify(azerothcore_root, mysql_args=None, characters_database=None):
 
     ale = prereq.check_mod_ale(azerothcore_root)
     checks.append(Check("mod-ale prerequisite", PASS if ale.present else FAIL, ale.remediation or ""))
+    ale_direct = prereq.check_mod_ale_direct_execute(azerothcore_root)
+    checks.append(Check("mod-ale synchronous write API", PASS if ale_direct.present else FAIL,
+                        ale_direct.remediation or ""))
 
     roots = manifest_mod.effective_roots(m)
+
+    for prior in m.get("prior_roots", []):
+        current_lua = os.path.abspath(roots["lua"])
+        prior_lua = os.path.abspath(prior.get("lua") or roots["lua"])
+        matched = []
+        if prior_lua != current_lua:
+            for rel, expected_hash in prior.get("lua_files", {}).items():
+                candidate = os.path.join(prior_lua, "lua_scripts", rel)
+                if hashing.sha256_file(candidate) == expected_hash:
+                    matched.append(candidate)
+        for candidate in prior.get("config_files", []):
+            if os.path.isfile(candidate) and os.path.abspath(candidate).startswith(os.path.abspath(prior.get("config") or "")):
+                matched.append(candidate)
+        if matched:
+            checks.append(Check(
+                "prior runtime-root leftovers", WARN,
+                f"{len(matched)} installer-owned file(s) remain under prior roots; "
+                "they were preserved and may be inactive. Verify the current live runtime root."
+            ))
 
     for component, data in m.get("components", {}).items():
         if not data.get("enabled"):

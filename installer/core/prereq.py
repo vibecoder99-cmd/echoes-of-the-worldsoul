@@ -4,6 +4,8 @@
 """External prerequisite checks. Never vendors or modifies these -- only
 detects and reports."""
 
+import os
+
 from . import discovery
 
 
@@ -37,3 +39,28 @@ def check_mod_ale(azerothcore_root):
 def check_mod_playerbots(azerothcore_root):
     info = discovery.describe_azerothcore_root(azerothcore_root)
     return PrereqResult("mod-playerbots", info["has_mod_playerbots"])
+
+
+def check_mod_ale_direct_execute(azerothcore_root):
+    """Check the source-level synchronous write API required by purchases."""
+    ale_root = os.path.join(azerothcore_root, "modules", "mod-ale")
+    registrations = os.path.join(ale_root, "src", "LuaEngine", "LuaFunctions.cpp")
+    methods = os.path.join(ale_root, "src", "LuaEngine", "methods", "GlobalMethods.h")
+    try:
+        with open(registrations, "r", encoding="utf-8", errors="ignore") as f:
+            registered = '"CharDBDirectExecute"' in f.read()
+        with open(methods, "r", encoding="utf-8", errors="ignore") as f:
+            implemented = "CharDBDirectExecute" in f.read()
+    except OSError:
+        registered = implemented = False
+    if registered and implemented:
+        return PrereqResult("mod-ale CharDBDirectExecute", True)
+    return PrereqResult(
+        "mod-ale CharDBDirectExecute", False,
+        remediation=(
+            "The installed mod-ale source does not expose CharDBDirectExecute, "
+            "which Echoes requires for synchronous, post-verified purchases. "
+            "Update mod-ale to a revision that implements and registers "
+            "CharDBDirectExecute, rebuild worldserver, and rerun the installer."
+        ),
+    )

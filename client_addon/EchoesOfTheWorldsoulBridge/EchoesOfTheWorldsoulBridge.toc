@@ -2,7 +2,7 @@
 ## Title: Echoes of the Worldsoul Bridge
 ## Notes: Tooltip bridge for the Echoes of the Worldsoul progression system.
 ## Author: vibecoder99
-## Version: 2.1.0
+## Version: 2.1.1
 ## SavedVariables: AttunementPlusBridgeDB
 
 EchoesOfTheWorldsoulBridge.lua

@@ -34,7 +34,7 @@ import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from core import discovery, install, manifest as manifest_mod, repair as repair_mod  # noqa: E402
+from core import discovery, hashing, install, manifest as manifest_mod, repair as repair_mod  # noqa: E402
 from core import uninstall as uninstall_mod, upgrade as upgrade_mod, verify  # noqa: E402
 
 FAILURES = []
@@ -169,6 +169,51 @@ def test_effective_roots_backward_compatible():
     resolved2 = manifest_mod.effective_roots(partial_manifest)
     check("manifest with roots={None,None}: still defaults to azerothcore_root",
           resolved2["lua"] == "/some/root" and resolved2["config"] == "/some/root")
+
+
+def test_verify_reports_but_preserves_prior_root_leftovers():
+    root, current = make_split_dml_root()
+    old = os.path.join(root, "old-runtime")
+    try:
+        old_lua = os.path.join(old, "lua_scripts")
+        current_lua = os.path.join(current, "lua_scripts")
+        os.makedirs(old_lua)
+        old_file = os.path.join(old_lua, "ap_core.lua")
+        current_file = os.path.join(current_lua, "ap_core.lua")
+        for path in (old_file, current_file):
+            with open(path, "w") as f: f.write("-- owned\n")
+        digest = hashing.sha256_file(old_file)
+        m = manifest_mod.default_manifest()
+        m["azerothcore_root"] = root
+        m["roots"] = {"lua": current, "config": current}
+        m["components"]["core_lua"] = {"enabled": True, "files": {"ap_core.lua": digest}}
+        m["prior_roots"] = [{"lua": old, "config": old, "lua_files": {"ap_core.lua": digest}, "config_files": []}]
+        manifest_mod.save(root, m, "test")
+        checks = verify.verify(root)
+        leftovers = [c for c in checks if c.name == "prior runtime-root leftovers"]
+        check("verify warns about provably owned prior-root Lua", len(leftovers) == 1 and leftovers[0].status == verify.WARN)
+        check("verify preserves the prior-root file", os.path.isfile(old_file))
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_install_options_auto_select_unambiguous_split_runtime():
+    print("test_install_options_auto_select_unambiguous_split_runtime")
+    root, dist_root = make_split_dml_root()
+    try:
+        opts = install.InstallOptions(
+            azerothcore_root=root, mysql_args=[],
+            characters_database="acore_characters", world_database="acore_world")
+        check("omitted lua_root selects detected env/dist", opts.lua_root == dist_root)
+        check("omitted config_root selects detected env/dist", opts.config_root == dist_root)
+        explicit = install.InstallOptions(
+            azerothcore_root=root, mysql_args=[],
+            characters_database="acore_characters", world_database="acore_world",
+            lua_root=root, config_root=root)
+        check("explicit roots remain authoritative",
+              explicit.lua_root == root and explicit.config_root == root)
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
 
 
 def test_install_single_root_unchanged():

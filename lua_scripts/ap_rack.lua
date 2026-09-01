@@ -71,6 +71,14 @@ function AP.Rack.PreviewExpand(player)
     end
 
     local expectedResidue = nil
+    local expectedEssence = nil
+    if tier[2] > 0 then
+        local aq = AP.DB.Query(string.format(
+            "SELECT `aether` FROM `ap_mastery` WHERE `guid` = %d", guid))
+        if not aq then return { ok = false, status = "SERVICE_UNAVAILABLE" } end
+        expectedEssence = tonumber(tostring(aq:GetUInt32(0)))
+        if expectedEssence == nil then return { ok = false, status = "SERVICE_UNAVAILABLE" } end
+    end
     if tier[3] > 0 then
         local residueOk
         residueOk, expectedResidue = AP.Forge.GetVerifiedResidue(accountId)
@@ -85,8 +93,66 @@ function AP.Rack.PreviewExpand(player)
         nextSlots = tier[1],
         essenceCost = tier[2],
         residueCost = tier[3],
+        expectedEssence = expectedEssence,
         expectedResidue = expectedResidue,
     }
+end
+
+-- Atomic Essence-tier expansion. This is deliberately separate from the
+-- Residue service above: both paths use an exact-balance compare-and-swap and
+-- read-after-write verification, and neither can report success merely because
+-- a SQL call was submitted.
+function AP.Rack.PurchaseEssenceExpand(player, expectedCurrent, expectedNext, expectedEssence)
+    local result = { ok = false, status = "SERVICE_UNAVAILABLE" }
+    if not player or type(expectedCurrent) ~= "number" or type(expectedNext) ~= "number" or
+            type(expectedEssence) ~= "number" then
+        return result
+    end
+    expectedCurrent = math.floor(expectedCurrent)
+    expectedNext = math.floor(expectedNext)
+    expectedEssence = math.floor(expectedEssence)
+    local tier = FindNextExpandTier(expectedCurrent)
+    if not tier or tier[1] ~= expectedNext or tier[2] <= 0 or tier[3] ~= 0 then
+        result.status = "INELIGIBLE"
+        return result
+    end
+    local guid = AP.RT.GetGUID(player)
+    local cost = tier[2]
+    result.cost, result.oldSlots, result.newSlots = cost, expectedCurrent, expectedNext
+    result.oldBalance = expectedEssence
+    if not guid then return result end
+    if expectedEssence < cost then
+        result.status = "INSUFFICIENT_ESSENCE"
+        return result
+    end
+    local before = AP.DB.Query(string.format(
+        "SELECT `rack_slots`, `aether` FROM `ap_mastery` WHERE `guid` = %d", guid))
+    local slotsBefore = before and tonumber(tostring(before:GetUInt32(0)))
+    local essenceBefore = before and tonumber(tostring(before:GetUInt32(1)))
+    if not before then result.status = "SERVICE_UNAVAILABLE"; return result end
+    if slotsBefore ~= expectedCurrent or essenceBefore ~= expectedEssence then
+        result.status = "STALE_PREVIEW"
+        result.newBalance = essenceBefore
+        return result
+    end
+    local wrote = AP.DB.ExecuteCritical(string.format(
+        "UPDATE `ap_mastery` SET `aether` = `aether` - %d, `rack_slots` = %d "..
+        "WHERE `guid` = %d AND `rack_slots` = %d AND `aether` = %d AND `aether` >= %d",
+        cost, expectedNext, guid, expectedCurrent, expectedEssence, cost),
+        "AP.Rack.PurchaseEssenceExpand")
+    if not wrote then result.status = "DATABASE_FAILURE"; return result end
+    local after = AP.DB.Query(string.format(
+        "SELECT `rack_slots`, `aether` FROM `ap_mastery` WHERE `guid` = %d", guid))
+    if not after then result.status = "POST_VERIFY_FAILURE"; return result end
+    local slotsAfter = tonumber(tostring(after:GetUInt32(0)))
+    local essenceAfter = tonumber(tostring(after:GetUInt32(1)))
+    if slotsAfter ~= expectedNext or essenceAfter ~= expectedEssence - cost then
+        result.status = "STALE_PREVIEW"
+        result.newBalance = essenceAfter
+        return result
+    end
+    result.ok, result.status, result.newBalance = true, "SUCCESS", essenceAfter
+    return result
 end
 
 function AP.Rack.PurchaseExpand(player, expectedCurrent, expectedNext, expectedResidue)
@@ -115,6 +181,19 @@ function AP.Rack.PurchaseExpand(player, expectedCurrent, expectedNext, expectedR
     if not guid or not accountId then return result end
     if expectedResidue < cost then
         result.status = "INSUFFICIENT_RESIDUE"
+        return result
+    end
+
+    local before = AP.DB.Query(string.format(
+        "SELECT m.`rack_slots`, r.`amount` FROM `ap_mastery` AS m "..
+        "JOIN `ap_residue` AS r ON r.`account_id` = %d WHERE m.`guid` = %d",
+        accountId, guid))
+    local slotsBefore = before and tonumber(tostring(before:GetUInt32(0)))
+    local residueBefore = before and tonumber(tostring(before:GetUInt32(1)))
+    if not before then result.status = "SERVICE_UNAVAILABLE"; return result end
+    if slotsBefore ~= expectedCurrent or residueBefore ~= expectedResidue then
+        result.status = "STALE_PREVIEW"
+        result.newBalance = residueBefore
         return result
     end
 
@@ -468,11 +547,13 @@ function AP.Rack.Expand(player)
             return false
         end
 
-        AP.DB.ExecuteCritical(string.format(
-            "UPDATE `ap_mastery` SET `aether` = `aether` - %d, "..
-            "`rack_slots` = %d WHERE `guid` = %d",
-            essenceCost, newSlots, guid
-        ))
+        local purchase = AP.Rack.PurchaseEssenceExpand(
+            player, preview.currentSlots, preview.nextSlots, preview.expectedEssence)
+        if not purchase.ok then
+            AP.RT.SendMessage(player,
+                "|cffff4444[Worldsoul]|r Rack expansion could not be committed. Nothing was spent.")
+            return false
+        end
     end
 
     if residueCost > 0 then
@@ -492,10 +573,6 @@ function AP.Rack.Expand(player)
                 "|cffff4444[Worldsoul]|r Rack expansion could not be committed. Nothing was spent.")
             return false
         end
-    end
-
-    if essenceCost > 0 then
-        AP.DB.Execute("COMMIT;")
     end
 
     AP.RT.SendMessage(player,string.format(

@@ -168,3 +168,10 @@ run with no external dependencies. The full install/verify test requires
 a disposable MySQL instance, supplied via `ECHOES_TEST_MYSQL_HOST` (and
 `_PORT`/`_USER`/`_PASSWORD`) -- it is skipped, not faked, when absent.
 Never targets a real/live database or a real AzerothCore checkout.
+# Split-root safety
+
+For an unmistakable DML layout (`modules/` at the checkout root and both
+`env/dist/lua_scripts/` and `env/dist/etc/modules/` present), omitted runtime
+roots resolve to `env/dist`. Explicit `--lua-root` and `--config-root` always
+win. `verify` also checks inspectable mod-ale source for the synchronous
+`CharDBDirectExecute` API required by spending paths.

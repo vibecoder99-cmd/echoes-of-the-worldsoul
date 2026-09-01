@@ -218,6 +218,11 @@ end
 --
 -- label: short identifier shown in the doctor warning,
 --        e.g. "AP.SaveSnapshot", "AP.GrantAether"
+-- A true return proves only that the synchronous call completed without
+-- throwing. It does not prove that a guarded statement matched or changed a
+-- row. Economic mutations that require a specific transition must verify the
+-- authoritative post-write state (or use an affected-row API if one becomes
+-- available).
 function AP.DB.ExecuteCritical(sql, label)
     if not allowOperationalSQL(sql) then return false end
     if AP.Cap.Check("CharDBDirectExecute") then

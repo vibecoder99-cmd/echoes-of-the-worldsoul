@@ -97,7 +97,7 @@ touching it -- see `installer/README.md` for full detail on each):
 installer/bin/echoes.sh install ... --with-playerbots --confirm-playerbots-compatible
 
 # Update an existing installer-managed install to a newer package:
-installer/bin/echoes.sh upgrade ... --target-version 2.1.0
+installer/bin/echoes.sh upgrade ... --target-version 2.1.1
 
 # Restore any installer-owned file that's missing or corrupted:
 installer/bin/echoes.sh repair --azerothcore-root /path/to/your/azerothcore
@@ -510,3 +510,17 @@ AzerothCore, and restart the worldserver.
 Re-run `dbc_patch/patch_item_dbc.py` against a clean base `Item.dbc`,
 repackage the MPQ, and distribute the updated `patch-E.MPQ` to players (or
 re-run `installer/bin/echoes.sh client-package` if you used the installer).
+# Split runtime paths and spending prerequisites
+
+Docker/DML deployments commonly keep C++ modules in the AzerothCore source
+checkout while the live `lua_scripts/` and `etc/modules/` directories live
+under `env/dist/`. The installer now selects that runtime root automatically
+when the complete split-layout signature is present. Explicit `--lua-root` and
+`--config-root` values remain authoritative. Run `echoes discover` before
+installing when the layout is unusual; installing Lua below the source root may
+not affect the running worldserver.
+
+Echoes purchases require ALE's synchronous `CharDBDirectExecute` binding. The
+installer checks inspectable mod-ale source for that API and refuses a known-old
+revision. After deployment, `.reload eluna` must report the capability as
+available; otherwise progression can accrue while purchases are rejected.

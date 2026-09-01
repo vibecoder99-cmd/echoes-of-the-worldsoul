@@ -27,7 +27,9 @@ import sys
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 # Repo root = three levels up from modules/mod-echoes-playerbots/tests
 REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
-LUA_DIR = os.path.join(REPO_ROOT, "env", "dist", "lua_scripts")
+RUNTIME_LUA_DIR = os.path.join(REPO_ROOT, "env", "dist", "lua_scripts")
+PACKAGE_LUA_DIR = os.path.join(REPO_ROOT, "lua_scripts")
+LUA_DIR = RUNTIME_LUA_DIR if os.path.isdir(RUNTIME_LUA_DIR) else PACKAGE_LUA_DIR
 
 results = []
 

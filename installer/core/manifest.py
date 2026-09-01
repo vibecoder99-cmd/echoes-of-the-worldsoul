@@ -45,6 +45,9 @@ def default_manifest():
             "lua": None,
             "config": None,
         },
+        # Prior installer-recorded runtime roots retained for non-destructive
+        # stale-copy reporting after an operator corrects a split deployment.
+        "prior_roots": [],
         "components": {
             # component name -> {
             #   "enabled": bool,

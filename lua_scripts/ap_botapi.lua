@@ -35,6 +35,18 @@ AP.API.BotAction.Results = AP.API.BotAction.Results or {}
 AP.API.BotAction.ResultOrder = AP.API.BotAction.ResultOrder or {}
 AP.API.BotAction.MAX_RESULTS = 200
 
+local function LogWriteActionException(action, err, player)
+    local guid = "unknown"
+    if player and AP.RT and AP.RT.GetGUID then
+        local guidOk, value = pcall(AP.RT.GetGUID, player)
+        if guidOk and value then guid = tostring(value) end
+    end
+    local message = string.format(
+        "Write action exception: subsystem=api action=%s guid=%s error_class=%s error=%s",
+        tostring(action), guid, type(err), tostring(err))
+    if AP.Log then AP.Log(message) else print("[Echoes] " .. message) end
+end
+
 local function PruneResults()
     while #AP.API.BotAction.ResultOrder > AP.API.BotAction.MAX_RESULTS do
         local oldest = table.remove(AP.API.BotAction.ResultOrder, 1)
@@ -469,7 +481,7 @@ function AP.API.GetTalentSnapshot(player)
         snapshot.essence = mastery and (tonumber(mastery.aether) or 0) or 0
         return snapshot
     end)
-    if not ok then return { ok = false, status = "SERVICE_UNAVAILABLE" } end
+    if not ok then LogWriteActionException("talent_snapshot", result); return { ok = false, status = "SERVICE_UNAVAILABLE" } end
     return result
 end
 
@@ -492,7 +504,7 @@ function AP.API.PreviewTalentPurchase(player, statIndex)
         preview.affordable = current.essence >= preview.cost
         return preview
     end)
-    if not ok then return { ok = false, status = "SERVICE_UNAVAILABLE" } end
+    if not ok then LogWriteActionException("talent_preview", result); return { ok = false, status = "SERVICE_UNAVAILABLE" } end
     return result
 end
 
@@ -538,7 +550,7 @@ function AP.API.ExecuteTalentPurchase(player, statIndex)
             oldBonusPct = currentStat.bonusPct, newBonusPct = projectedStat.bonusPct,
         }
     end)
-    if not ok then return { ok = false, status = "SERVICE_UNAVAILABLE" } end
+    if not ok then LogWriteActionException("talent_purchase", result, player); return { ok = false, status = "SERVICE_UNAVAILABLE" } end
     return result
 end
 
@@ -582,7 +594,7 @@ function AP.API.ExecuteSinkInvest(player, category, amount)
         local success, reason = AP.Sinks.Invest(player, category, amount)
         return { ok = success == true, reason = reason }
     end)
-    if not ok then return { ok = false, reason = "exception" } end
+    if not ok then LogWriteActionException("crucible_invest", result, player); return { ok = false, reason = "exception" } end
     return result
 end
 
@@ -596,24 +608,25 @@ function AP.API.PreviewRackExpand(player)
         end
         return AP.Rack.PreviewExpand(player)
     end)
-    if not ok then return { ok = false } end
+    if not ok then LogWriteActionException("rack_expand_preview", result); return { ok = false } end
     return result
 end
 
 -- Real, gated mutation: delegates to AP.Rack.Expand exactly as the human
 -- Attunement Rack gossip menu does.
-function AP.API.ExecuteRackExpand(player, expectedCurrent, expectedNext, expectedResidue)
+function AP.API.ExecuteRackExpand(player, expectedCurrent, expectedNext, expectedResidue, expectedEssence)
     local ok, result = pcall(function()
-        if not player or not AP.Rack or not AP.Rack.Expand then
+        if not player or not AP.Rack or not AP.Rack.PurchaseExpand or
+                not AP.Rack.PurchaseEssenceExpand then
             return { ok = false, status = "SERVICE_UNAVAILABLE" }
         end
         if type(expectedResidue) == "number" then
             return AP.Rack.PurchaseExpand(player, expectedCurrent, expectedNext, expectedResidue)
         end
-        local success = AP.Rack.Expand(player)
-        return { ok = success == true, status = success and "SUCCESS" or "INELIGIBLE" }
+        return AP.Rack.PurchaseEssenceExpand(
+            player, expectedCurrent, expectedNext, expectedEssence)
     end)
-    if not ok then return { ok = false, status = "SERVICE_UNAVAILABLE" } end
+    if not ok then LogWriteActionException("rack_expand", result, player); return { ok = false, status = "SERVICE_UNAVAILABLE" } end
     return result
 end
 
@@ -624,7 +637,7 @@ function AP.API.PreviewCatalyst(player)
         end
         return AP.Forge.PreviewCatalyst(player)
     end)
-    if not ok then return { ok = false, status = "SERVICE_UNAVAILABLE" } end
+    if not ok then LogWriteActionException("forge_catalyst_preview", result); return { ok = false, status = "SERVICE_UNAVAILABLE" } end
     return result
 end
 
@@ -635,7 +648,7 @@ function AP.API.ExecuteCatalyst(player, expectedResidue, expectedEssence)
         end
         return AP.Forge.PurchaseCatalyst(player, expectedResidue, expectedEssence)
     end)
-    if not ok then return { ok = false, status = "SERVICE_UNAVAILABLE" } end
+    if not ok then LogWriteActionException("forge_catalyst", result, player); return { ok = false, status = "SERVICE_UNAVAILABLE" } end
     return result
 end
 
@@ -656,7 +669,7 @@ function AP.API.PreviewMasteryPurchase(player)
         local cost    = AP.MasteryCost(mastery)
         return { ok = true, currentRank = mastery, currentBalance = aether, cost = cost }
     end)
-    if not ok then return { ok = false } end
+    if not ok then LogWriteActionException("mastery_preview", result); return { ok = false } end
     return result
 end
 
@@ -671,7 +684,7 @@ function AP.API.ExecuteMasteryPurchase(player)
         purchaseResult.ok = (purchaseResult.status == "SUCCESS")
         return purchaseResult
     end)
-    if not ok then return { ok = false, status = "SERVICE_UNAVAILABLE" } end
+    if not ok then LogWriteActionException("mastery_purchase", result, player); return { ok = false, status = "SERVICE_UNAVAILABLE" } end
     return result
 end
 

@@ -5,7 +5,7 @@
 </p>
 
 [![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/badge/release-v2.1.0-blue.svg)](https://github.com/vibecoder99-cmd/echoes-of-the-worldsoul/releases/tag/v2.1.0)
+[![Release](https://img.shields.io/badge/release-v2.1.1-blue.svg)](https://github.com/vibecoder99-cmd/echoes-of-the-worldsoul/releases/tag/v2.1.1)
 [![AzerothCore](https://img.shields.io/badge/AzerothCore-3.3.5a-informational.svg)](https://github.com/azerothcore/azerothcore-wotlk)
 [![Playerbots](https://img.shields.io/badge/Playerbots-optional-lightgrey.svg)](#playerbots-support)
 
@@ -14,9 +14,9 @@ what you do with it: fight with a piece long enough and the Worldsoul begins
 to answer, unlocking permanent stat power, a persistent account-wide
 currency, and cosmetic effects that deepen the longer you stay attuned.
 
-**Current release: [v2.1.0](https://github.com/vibecoder99-cmd/echoes-of-the-worldsoul/releases/tag/v2.1.0)** —
-the Chaos Mode feature release. The historical `v2.0.0-rc1` remains the
-Client Companion/installer release candidate that preceded it.
+**Current release: [v2.1.1](https://github.com/vibecoder99-cmd/echoes-of-the-worldsoul/releases/tag/v2.1.1)** —
+the Rack spending and installer reliability hotfix for the 2.1.0 Chaos Mode
+feature release. Existing 2.1.0 servers using Rack expansion should upgrade.
 
 Open source (GPLv3), source-based install, no client modifications beyond an
 additive AddOn and DBC patch.
@@ -482,6 +482,7 @@ echoes-of-the-worldsoul/
 ├── CHANGELOG.md
 ├── RELEASE_NOTES_v2.0.0-rc1.md
 ├── RELEASE_NOTES_v2.1.0.md
+├── RELEASE_NOTES_v2.1.1.md
 ├── LICENSE
 └── README.md
 ```

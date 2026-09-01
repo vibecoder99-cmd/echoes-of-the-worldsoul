@@ -12,6 +12,23 @@ formal versioning and are kept as-is for context.
 
 ---
 
+## 2.1.1 — Rack Spending & Installer Reliability Hotfix
+
+### Fixed
+
+- Made Essence-paid Rack expansion succeed only after the guarded database
+  transition is authoritatively post-verified
+- Removed false-success feedback from the legacy Rack route and routed Client
+  Companion expansion through currency-specific purchase services
+- Added safe operator logging for caught write-action exceptions
+- Selected unmistakable split `env/dist` runtime roots automatically while
+  preserving explicit operator overrides
+- Strengthened the source-inspectable ALE prerequisite check for
+  `CharDBDirectExecute` and added non-destructive prior-root leftover reporting
+
+The 2.1.0 Chaos Mode release remains historical truth; 2.1.1 is its forward
+bug-fix release.
+
 ## 2.1.0 — Chaos Mode
 
 ### Added

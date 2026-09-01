@@ -148,3 +148,11 @@ Chaos is persisted per character in `ap_mastery.chaos_enabled`. Verify the
 `chaos_power`. Manual OFF/ON cycling is not the initialization mechanism in
 2.1.0; capture exact Lua/server errors and both version strings before changing
 SavedVariables.
+# Spending fails while Essence still accrues
+
+Do not wipe progression or reinstall AzerothCore. First run `echoes discover`
+and `echoes verify`, then check the worldserver's Eluna probe output for
+`CharDBDirectExecute: YES`. Accrual and state reads can work on an older ALE
+build even though Echoes correctly refuses critical purchases without this
+synchronous write API. Also confirm that the live Lua directory—not a
+disconnected source-root copy—contains one coherent Echoes version.
