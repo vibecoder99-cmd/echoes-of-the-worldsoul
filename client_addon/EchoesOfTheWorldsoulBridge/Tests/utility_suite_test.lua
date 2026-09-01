@@ -12,7 +12,7 @@ _G.APB={echoes={welcomed=true,compatible=0,caps={},codexTopics={}},
 AttunementPlusBridgeDB={cache={},c43={reducedMotion=false}}
 local function load(rel) local f,e=loadfile(ADDON_DIR.."/"..rel); if not f then fail(e) end; local ok,x=pcall(f); if not ok then fail(rel..": "..x) end end
 for _,rel in ipairs({
-    "EchoesUI/Bootstrap.lua","EchoesUI/Theme.lua","EchoesUI/StateStore.lua","EchoesUI/AnimationController.lua",
+    "EchoesUI/Bootstrap.lua","EchoesUI/Theme.lua","EchoesUI/StateStore.lua","EchoesUI/AnimationController.lua","EchoesUI/Chaos.lua",
     "EchoesUI/ScreenManager.lua","EchoesUI/InputManager.lua","EchoesUI/Layout.lua",
     "EchoesUI/Components/IconButton.lua","EchoesUI/Components/Landmark.lua","EchoesUI/Components/CoreWidget.lua",
     "EchoesUI/Components/ResourceDisplay.lua","EchoesUI/Components/ProgressionZone.lua","EchoesUI/Components/ProgressionRow.lua",

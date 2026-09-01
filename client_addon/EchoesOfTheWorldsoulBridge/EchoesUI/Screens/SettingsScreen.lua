@@ -133,6 +133,22 @@ local routePressed = Art(access.root, "ARTWORK", "SettingsRoutePressed", 0.63476
 routePressed:SetSize(650, 76); routePressed:SetPoint("TOPLEFT", access.root, "TOPLEFT", 0, 0); routePressed:SetAlpha(0.96)
 WireThreeStatePress(access, routeResting, routeFocus, routePressed)
 
+-- Chaos occupies the source-audited unused right-hand region beside the
+-- Accessibility route. Activation is authoritative character state.
+local chaos=UI.ProgressionRow:Create(Screen.content,{
+    id="toggleChaos",name="EchoesUISettingsChaos",width=380,height=76,icon=false,
+    label="CHAOS NUMBERS",meta="Express combat in Chaos-scale units",value="OFF",valueWidth=56,
+    tooltip="Expresses combat values at a larger logical scale.\nNative combat rules and relative power remain unchanged.",
+    accentColor=Theme.colors.worldsoul,focusColor=Theme.colors.worldsoul,
+    onActivate=function() UI.Chaos:Toggle() end,
+})
+chaos.root:SetPoint("TOPLEFT",Screen.content,"TOPLEFT",710,-190)
+Screen.chaos=chaos; Screen:AddControl(chaos,"toggleChaos")
+UI.Chaos:Subscribe(function(state)
+    chaos:SetData({label="CHAOS NUMBERS",meta="Express combat in Chaos-scale units",
+        value=state.enabled and "ON" or "OFF",tooltip=chaos.tooltip})
+end)
+
 local sectionRailStorage = Art(Screen.content, "ARTWORK", "UtilitySectionRail", 0.51269531, 0.8125)
 sectionRailStorage:SetSize(1050, 26); sectionRailStorage:SetPoint("TOPLEFT", Screen.content, "TOPLEFT", 40, -320); sectionRailStorage:SetAlpha(0.62)
 local storageRail = Art(Screen.content, "ARTWORK", "SettingsStorageRail", 0.51269531, 0.671875)
@@ -140,9 +156,11 @@ storageRail:SetSize(1050, 86); storageRail:SetPoint("TOPLEFT", Screen.content, "
 
 Text("STORAGE",320,11,Theme.colors.bronzeBright)
 Text("Reduced Motion is stored account-wide in AttunementPlusBridgeDB and applies immediately. No server data is changed by this utility suite.",350,13)
-Screen.input:SetNavigation({"openAccessibility","back","home","close"},{
-    openAccessibility={UP="back",DOWN="back",RIGHT="home"},back={DOWN="openAccessibility"},
-    home={DOWN="openAccessibility",RIGHT="close"},close={LEFT="home",DOWN="openAccessibility"},
+Screen.input:SetNavigation({"openAccessibility","toggleChaos","back","home","close"},{
+    openAccessibility={UP="back",DOWN="back",RIGHT="toggleChaos"},
+    toggleChaos={UP="home",DOWN="home",LEFT="openAccessibility",RIGHT="home"},
+    back={DOWN="openAccessibility"},
+    home={DOWN="toggleChaos",RIGHT="close"},close={LEFT="home",DOWN="toggleChaos"},
 })
 Screen.defaultFocus="openAccessibility"
 function Screen:IsAvailable() return UI.flags.nativeSettings ~= false end

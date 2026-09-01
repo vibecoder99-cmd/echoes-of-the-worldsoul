@@ -26,7 +26,7 @@ AP = AP or {}
 --   MAJOR: breaking schema changes or removed features
 -- The server package version is independent of the client AddOn version.
 -- ============================================================
-AP.VERSION = "2.0.0-rc1"
+AP.VERSION = "2.1.0"
 
 -- ============================================================
 -- CAPABILITY FLAGS
@@ -368,6 +368,50 @@ end
 function AP.MasteryCost(currentRank)
     local n = currentRank + 1  -- buying rank n+1
     return math.floor(AP.Config.MasteryCostBase * (n ^ AP.Config.MasteryCostExp))
+end
+
+-- ============================================================
+-- CHAOS READING (viewer-side unit system; never mutates combat)
+-- ============================================================
+AP.Chaos = AP.Chaos or {}
+AP.Chaos.RulesetVersion = 1
+
+function AP.Chaos.MasteryBasis(rank)
+    local total = 0
+    rank = math.max(0, math.floor(tonumber(rank) or 0))
+    for current = 0, rank - 1 do total = total + AP.MasteryCost(current) end
+    return total
+end
+
+function AP.Chaos.BuildReading(enabled, attuned, mastery, crucible)
+    attuned = math.max(0, math.floor(tonumber(attuned) or 0))
+    mastery = math.max(0, math.floor(tonumber(mastery) or 0))
+    crucible = math.max(0, math.floor(tonumber(crucible) or 0))
+    local attunementContribution = attuned * 5000
+    local masteryBasis = AP.Chaos.MasteryBasis(mastery)
+    local masteryContribution = masteryBasis * 25
+    local crucibleContribution = crucible * 10
+    local power = 1000 + attunementContribution + masteryContribution + crucibleContribution
+    local magnitude = 0
+    local probe = power
+    while probe >= 1000 do probe = probe / 1000; magnitude = magnitude + 1 end
+    return {
+        enabled = enabled == true,
+        power = string.format("%.0f", power),
+        magnitude = magnitude,
+        -- Basis points applied after the accepted level-aware client taper.
+        -- Progression changes the reading gently without rebuilding world balance.
+        scale = 1000 + math.min(250, magnitude * 25),
+        ruleset = AP.Chaos.RulesetVersion,
+        base = 1000,
+        attuned = attuned,
+        attunementContribution = attunementContribution,
+        masteryRank = mastery,
+        masteryBasis = masteryBasis,
+        masteryContribution = masteryContribution,
+        crucibleBasis = crucible,
+        crucibleContribution = crucibleContribution,
+    }
 end
 
 -- Slot multiplier given XP total for that slot

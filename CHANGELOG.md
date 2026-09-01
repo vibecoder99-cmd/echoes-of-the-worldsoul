@@ -12,7 +12,47 @@ formal versioning and are kept as-is for context.
 
 ---
 
-## Unreleased (post-2.0.0-rc1)
+## 2.1.0 — Chaos Mode
+
+### Added
+
+- Optional character-scoped Chaos Mode with current-state-derived Chaos Power,
+  base-1000 Magnitude, and named ranks
+- Viewer-side Effective Health on supported stock Player, Target, Focus, Pet,
+  Party 1–4, and vehicle-bound PlayerFrame health-number surfaces
+- Destination-scaled floating combat and live Blizzard Combat Log values, plus
+  Personal Chaos Scale weapon and supported fixed spell/aura/proc references
+
+### Changed
+
+- Added the backward-compatible Chaos capability/action/state contract while
+  retaining bridge protocol version 1
+- Added guarded `ap_mastery.chaos_enabled`, default OFF; existing-character
+  Power is derived without a progression rewrite or new currency
+
+### Fixed
+
+- Restored persisted presentation after login/reload/relog and character switch
+  by replaying already-hydrated and unchanged authoritative state
+- Removed contradictory native health/combat numbers from supported ordinary
+  HUD surfaces while Chaos is active, with exact native restoration when OFF
+- Stabilized tooltip ordering and removed the observed flicker loop
+- Corrected the touched Aether state read to use `AP.DB.GetUInt64`
+- Reconciled server and Client Companion expected versions at `2.1.0`
+
+### Documentation
+
+- Added player behavior, architecture, upgrade guidance, live evidence, and
+  explicit native/third-party/debug boundaries
+
+### Known limitations
+
+- Third-party AddOns may show native values; unsupported dynamic/localized
+  tooltip prose stays native; GM/debug stays native by design
+- Raid/focus-target numeric surfaces are not certified and the historical
+  manual Combat Log refilter path remains P2
+
+## Unreleased (post-2.0.0-rc1, included in 2.1.0)
 
 - Introduced a module compatibility target matrix
   (`docs/COMPATIBILITY.md`) distinguishing tested combinations from

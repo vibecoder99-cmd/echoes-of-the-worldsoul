@@ -54,6 +54,7 @@ local REQUIRED_COLUMNS = {
     { "ap_mastery", "mastery" }, { "ap_mastery", "rate_xp" },
     { "ap_mastery", "rate_aether" }, { "ap_mastery", "rate_boss" },
     { "ap_mastery", "rack_slots" },
+    { "ap_mastery", "chaos_enabled" },
     { "ap_item_attune", "guid" }, { "ap_item_attune", "item_entry" },
     { "ap_item_attune", "progress" }, { "ap_item_attune", "attuned" },
     { "ap_item_snapshot", "guid" }, { "ap_item_snapshot", "item_entry" },

@@ -86,6 +86,11 @@ BEGIN
                      AND COLUMN_NAME = 'rack_slots') THEN
         ALTER TABLE `ap_mastery` ADD COLUMN `rack_slots` TINYINT UNSIGNED NOT NULL DEFAULT 3;
     END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.COLUMNS
+                   WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ap_mastery'
+                     AND COLUMN_NAME = 'chaos_enabled') THEN
+        ALTER TABLE `ap_mastery` ADD COLUMN `chaos_enabled` TINYINT(1) NOT NULL DEFAULT 0;
+    END IF;
 END$$
 
 -- ---- AuraLab spell-ID corrections ----

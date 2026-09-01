@@ -123,3 +123,13 @@ itself — behaves identically. See
 [Version / Fork Caveat](COMPATIBILITY.md#8-version--fork-caveat) in
 docs/COMPATIBILITY.md for the same caveat as it applies to third-party
 module compatibility specifically.
+
+## 10. Echoes 2.1.0 Chaos live evidence
+
+The 2.1.0 Chaos implementation was exercised in the DML-style WSL/runtime and
+WoW 3.3.5a client described above. Manual operator evidence includes persisted
+Chaos-ON relog, different-character switching, Mage and Warlock spell
+references, floating Chaos combat numbers, live Combat Log amounts, broad NPC
+Effective Health samples, believable Magnitude I presentation, and stable
+post-fix tooltip behavior. This evidence is for the named environment, not a
+promise for every later upstream or third-party UI revision.

@@ -87,6 +87,7 @@ function Frame:SetAlpha(a) self._alpha = a end
 function Frame:GetAlpha() return self._alpha end
 function Frame:SetScale(s) self._scale = s end
 function Frame:GetScale() return self._scale or 1 end
+function Frame:GetName() return self._name end
 function Frame:GetRight() return nil end
 function Frame:GetWidth() return 1024 end
 function Frame:GetHeight() return 768 end
@@ -127,6 +128,15 @@ end
 _G.CreateFrame = function(kind, name, parent)
     return newFrame(kind, name, parent)
 end
+_G.hooksecurefunc = function(name,hook)
+    local original=_G[name]
+    if type(original)~="function" then return end
+    _G[name]=function(...)
+        local results={original(...)}
+        hook(...)
+        return table.unpack(results)
+    end
+end
 
 _G.UIParent = newFrame("Frame", "UIParent")
 _G.GameFontHighlight = {}
@@ -151,7 +161,13 @@ _G.AdvanceClock = function(dt) clock = clock + dt end
 _G.GameTooltip = newFrame("Frame", "GameTooltip")
 function _G.GameTooltip:SetOwner() end
 function _G.GameTooltip:ClearLines() self._lines = {} end
-function _G.GameTooltip:AddLine(line) self._lines = self._lines or {}; self._lines[#self._lines+1] = line end
+function _G.GameTooltip:AddLine(line)
+    self._lines = self._lines or {}; self._lines[#self._lines+1] = line
+    local regionName=(self:GetName() or "GameTooltip").."TextLeft"..#self._lines
+    _G[regionName]=_G[regionName] or setmetatable({},FontString)
+    _G[regionName]:SetText(line)
+end
+function _G.GameTooltip:NumLines() return #(self._lines or {}) end
 function _G.GameTooltip:AddDoubleLine() end
 function _G.GameTooltip:IsVisible() return self._shown end
 function _G.GameTooltip:GetItem() return self._link and "Mock Item", self._link end
@@ -162,7 +178,7 @@ function _G.GameTooltip:SetHyperlink(link)
 end
 _G.ItemRefTooltip = newFrame("Frame", "ItemRefTooltip")
 for key, value in pairs({
-    ClearLines=_G.GameTooltip.ClearLines, AddLine=_G.GameTooltip.AddLine,
+    ClearLines=_G.GameTooltip.ClearLines, AddLine=_G.GameTooltip.AddLine, NumLines=_G.GameTooltip.NumLines,
     AddDoubleLine=_G.GameTooltip.AddDoubleLine, IsVisible=_G.GameTooltip.IsVisible,
     GetItem=_G.GameTooltip.GetItem, SetHyperlink=_G.GameTooltip.SetHyperlink,
 }) do _G.ItemRefTooltip[key] = value end
@@ -191,6 +207,17 @@ _G.GetItemInfo = function(link)
     return "Mock Item " .. entry, link, 2, 80, 1, "Armor", "Misc", 1, "", "Interface\\Icons\\INV_Misc_QuestionMark"
 end
 _G.GetAddOnMetadata = function() return "1.1.0" end
+
+local mockCVars = {CombatDamage="1",CombatHealing="1",PetMeleeDamage="1",CombatLogPeriodicSpells="1",enableCombatText="1"}
+_G.GetCVar = function(name) return mockCVars[name] end
+_G.SetCVar = function(name,value) mockCVars[name]=tostring(value) end
+_G.GetMockCVar = function(name) return mockCVars[name] end
+_G.SetMockCVar = function(name,value) mockCVars[name]=tostring(value) end
+_G.COMBAT_TEXT_SCROLL_FUNCTION = function() return 0,0 end
+_G.CombatText_AddMessage = function(message,scroll,r,g,b,displayType,staggered)
+    _G.MockCombatTextMessages = _G.MockCombatTextMessages or {}
+    _G.MockCombatTextMessages[#_G.MockCombatTextMessages+1] = {message=message,displayType=displayType,r=r,g=g,b=b}
+end
 
 -- CHAT_MSG_SYSTEM/etc filter registry, matching Blizzard's real chained-filter
 -- behavior: every registered filter for an event runs in registration order;

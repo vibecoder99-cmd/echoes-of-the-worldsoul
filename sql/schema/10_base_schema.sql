@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS `ap_mastery` (
     `rate_aether` FLOAT            NOT NULL DEFAULT 1,
     `rate_boss`   FLOAT            NOT NULL DEFAULT 1,
     `rack_slots`  TINYINT UNSIGNED NOT NULL DEFAULT 3,
+    `chaos_enabled` TINYINT(1) NOT NULL DEFAULT 0,
     PRIMARY KEY (`guid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

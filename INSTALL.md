@@ -97,7 +97,7 @@ touching it -- see `installer/README.md` for full detail on each):
 installer/bin/echoes.sh install ... --with-playerbots --confirm-playerbots-compatible
 
 # Update an existing installer-managed install to a newer package:
-installer/bin/echoes.sh upgrade ... --target-version 2.0.0-rc1
+installer/bin/echoes.sh upgrade ... --target-version 2.1.0
 
 # Restore any installer-owned file that's missing or corrupted:
 installer/bin/echoes.sh repair --azerothcore-root /path/to/your/azerothcore
@@ -440,6 +440,22 @@ If all checks pass, the installation is complete.
 ---
 
 ## Updating an Existing Install
+
+### Upgrading from 2.0.0-rc1 to 2.1.0
+
+Run the normal installer-managed upgrade with `--target-version 2.1.0`, or
+perform every manual step below. The guarded schema pass adds
+`ap_mastery.chaos_enabled TINYINT(1) NOT NULL DEFAULT 0` when missing and is
+safe to rerun. Existing progression is retained: Chaos Power is derived from
+current fully-attuned items, Mastery rank, and permanent Crucible investment,
+so no progression wipe, event-ledger conversion, or new currency is needed.
+
+Replace both the server Lua package and every player's Client Companion AddOn;
+the server and AddOn must both report `2.1.0`. The existing `patch-E.MPQ` data
+payload is unchanged by Chaos Mode, and no `patch-Z.MPQ` is required unless an
+operator separately needs the documented mod-individual-progression merged-DBC
+compatibility path. Chaos participation defaults OFF for each character and can
+then be enabled from Client Companion Settings.
 
 **If you used the installer**, `installer/bin/echoes.sh upgrade` (see
 "Other installer commands" above) does everything below automatically,

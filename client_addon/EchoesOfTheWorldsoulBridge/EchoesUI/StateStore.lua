@@ -36,6 +36,10 @@ local supportedFields = {
     "visage_themes_unlocked", "visage_flash_enabled",
     "visage_chat_flavor_enabled", "visage_attuned_count",
     "visage_crucible_invested", "visage_preview_active",
+    "chaos_enabled", "chaos_power", "chaos_magnitude", "chaos_scale",
+    "chaos_ruleset", "chaos_base", "chaos_attunement_basis",
+    "chaos_attunement_contribution", "chaos_mastery_rank", "chaos_mastery_basis",
+    "chaos_mastery_contribution", "chaos_crucible_basis", "chaos_crucible_contribution",
 }
 
 local numericFields = {
@@ -68,6 +72,10 @@ local numericFields = {
     visage_flash_enabled=true, visage_chat_flavor_enabled=true,
     visage_attuned_count=true, visage_crucible_invested=true,
     visage_preview_active=true,
+    chaos_enabled=true, chaos_magnitude=true, chaos_scale=true, chaos_ruleset=true,
+    chaos_base=true, chaos_attunement_basis=true, chaos_attunement_contribution=true,
+    chaos_mastery_rank=true, chaos_mastery_basis=true, chaos_mastery_contribution=true,
+    chaos_crucible_basis=true, chaos_crucible_contribution=true,
 }
 
 local function Normalize(key, value)
@@ -78,7 +86,7 @@ local function Normalize(key, value)
     return value
 end
 
-function Store:Ingest(fields, stamp)
+function Store:Ingest(fields, stamp, forceNotify)
     if type(fields) ~= "table" then return false end
 
     local changed = {}
@@ -93,12 +101,12 @@ function Store:Ingest(fields, stamp)
     end
 
     self.stamp = stamp or GetTime()
-    if changedCount == 0 then return false end
+    if changedCount == 0 and not forceNotify then return false end
 
     for _, callback in pairs(self.subscribers) do
         UI:SafeCall("StateStore subscriber", callback, self.values, changed, self.stamp)
     end
-    return true
+    return changedCount > 0
 end
 
 function Store:Get(key)
@@ -128,5 +136,5 @@ UI.modules.StateStore = true
 
 -- Covers reloads where protocol state already exists before this module loads.
 if APB and APB.echoes and APB.echoes.lastState then
-    Store:Ingest(APB.echoes.lastState, APB.echoes.lastStateTime)
+    Store:Ingest(APB.echoes.lastState, APB.echoes.lastStateTime, true)
 end

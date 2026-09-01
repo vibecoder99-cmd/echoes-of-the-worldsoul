@@ -218,3 +218,16 @@ AzerothCore, approved by Playerbots, approved by any third-party module
 maintainer, or compatible with "all modules." Every claim in this
 document is scoped to a named module, a named revision, and a named test
 methodology — nothing more.
+
+## 10. Chaos Mode boundaries (2.1.0)
+
+Chaos is viewer-side and does not alter native combat or the module interaction
+surfaces above. Existing statuses remain unchanged: Playerbots is **TESTED**;
+mod-individual-progression is **SERVER TESTED / CLIENT MERGE REQUIRED** when
+its optional client patches are used.
+
+Third-party AddOns that consume native health APIs or combat-log events may
+show engine-native values. No universal Recount, Skada, or custom-unit-frame
+integration is claimed. Echoes certifies stock Player, Target, Focus, Pet,
+Party 1–4, and vehicle-bound PlayerFrame health-number surfaces; raid and
+focus-target numeric surfaces are outside the 2.1.0 contract.

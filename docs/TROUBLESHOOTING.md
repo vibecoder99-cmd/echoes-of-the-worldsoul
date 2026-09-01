@@ -132,3 +132,19 @@ installer's own management -- if that was intentional (e.g. hand-tuned a
 `.conf`), no action needed. If it wasn't, `repair --restore-mismatched`
 restores it from the current package source (missing files are always
 restored automatically; mismatched ones only with that explicit flag).
+
+## Chaos toggle is ON but native numbers still appear
+
+Confirm both the server package and `EchoesOfTheWorldsoulBridge.toc` report
+`2.1.0`; a mixed 2.0/2.1 pair lacks the complete Chaos contract. `/reload` is
+safe. Supported stock Player, Target, Focus, Pet, Party 1–4, and vehicle-bound
+PlayerFrame numeric health should use Chaos units when stock numbers would be
+visible. Third-party frames/meters may still show native values by design.
+
+## Chaos state does not survive relog or character switching
+
+Chaos is persisted per character in `ap_mastery.chaos_enabled`. Verify the
+2.1.0 guarded schema ran and server STATE includes `chaos_enabled` and
+`chaos_power`. Manual OFF/ON cycling is not the initialization mechanism in
+2.1.0; capture exact Lua/server errors and both version strings before changing
+SavedVariables.

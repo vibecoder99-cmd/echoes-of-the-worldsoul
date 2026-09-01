@@ -5,7 +5,7 @@
 </p>
 
 [![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/badge/release-v2.0.0--rc1-orange.svg)](https://github.com/vibecoder99-cmd/echoes-of-the-worldsoul/releases/tag/v2.0.0-rc1)
+[![Release](https://img.shields.io/badge/release-v2.1.0-blue.svg)](https://github.com/vibecoder99-cmd/echoes-of-the-worldsoul/releases/tag/v2.1.0)
 [![AzerothCore](https://img.shields.io/badge/AzerothCore-3.3.5a-informational.svg)](https://github.com/azerothcore/azerothcore-wotlk)
 [![Playerbots](https://img.shields.io/badge/Playerbots-optional-lightgrey.svg)](#playerbots-support)
 
@@ -14,10 +14,9 @@ what you do with it: fight with a piece long enough and the Worldsoul begins
 to answer, unlocking permanent stat power, a persistent account-wide
 currency, and cosmetic effects that deepen the longer you stay attuned.
 
-**Current release: [v2.0.0-rc1](https://github.com/vibecoder99-cmd/echoes-of-the-worldsoul/releases/tag/v2.0.0-rc1)** —
-a release candidate, not yet final. This is the continuation of the same
-project that shipped `v1.6.0-rc1`, substantially expanded since. See
-[What's New in 2.0](#whats-new-in-20) if you saw Echoes before.
+**Current release: [v2.1.0](https://github.com/vibecoder99-cmd/echoes-of-the-worldsoul/releases/tag/v2.1.0)** —
+the Chaos Mode feature release. The historical `v2.0.0-rc1` remains the
+Client Companion/installer release candidate that preceded it.
 
 Open source (GPLv3), source-based install, no client modifications beyond an
 additive AddOn and DBC patch.
@@ -97,6 +96,9 @@ history, and history is worth something.**
   artificial stat inflation.
 - **Visage** — cosmetic aura/flash effects that reflect how far your
   attunement has come.
+- **Chaos Mode** — an optional character setting that expresses supported
+  health, combat, and reference values in a larger logical unit system while
+  leaving native Wrath combat and relative power relationships authoritative.
 
 None of this requires grouping, a guild, or any other player — it's built
 for a self-paced or solo-friendly server, though nothing stops it from
@@ -144,6 +146,27 @@ form during the v1.6-era development track and has now been compiled,
 tested, and shipped as part of the public package for the first time. See
 [Compatibility Evidence](#compatibility-evidence) for exactly what was
 verified and how.
+
+---
+
+## What's New in 2.1?
+
+Echoes 2.1.0 adds optional **Chaos Mode**. Chaos Power is derived from a
+character's current permanent Echoes development and displayed with a
+base-1000 Magnitude rank. When enabled, supported stock health numbers,
+floating combat outcomes, the live Combat Log, weapon references, and bounded
+fixed spell/aura/proc references use one coherent viewer-side scale.
+
+Chaos does **not** give creatures literal billion-point native health, widen
+packets, change combat resolution, add a currency, or normalize every enemy to
+the player. Earlier creatures still become easier; normal mobs remain below
+elites, dungeon bosses, and raid bosses. **Getting stronger must not make
+Azeroth less worth playing.**
+
+Settings contains the Chaos Numbers toggle; Progression shows Chaos Power,
+Magnitude, and rank name. No Dashboard destination or new navigation was
+added. See [the player guide](docs/CHAOS_MODE.md) and
+[technical architecture](docs/CHAOS_ARCHITECTURE.md).
 
 ---
 
@@ -418,7 +441,7 @@ Six layers, each independently understandable — deliberately not blurring
 
 1. **Echoes Core** (`lua_scripts/`) — the Eluna gameplay/runtime logic:
    attunement, Essence, Mastery, Crucible, Rack, Forge, World Threat,
-   Visage, and the client/server protocol.
+   Visage, Chaos state/power, and the client/server protocol.
 2. **Engine Integration** (`cpp_patch/mod-echoes-stats/`, required) —
    compiled, engine-level stat and Crucible-effect application.
 3. **Optional Playerbots Integration** (`cpp_patch/mod-echoes-playerbots/`)
@@ -458,6 +481,7 @@ echoes-of-the-worldsoul/
 ├── INSTALL.md
 ├── CHANGELOG.md
 ├── RELEASE_NOTES_v2.0.0-rc1.md
+├── RELEASE_NOTES_v2.1.0.md
 ├── LICENSE
 └── README.md
 ```

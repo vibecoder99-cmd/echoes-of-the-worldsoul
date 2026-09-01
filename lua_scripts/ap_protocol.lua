@@ -72,6 +72,8 @@ AP.Protocol.ServerCapabilities = {
     "action_visage_notifications",
     "codex_state_v1",
     "codex_search_v1",
+    "chaos_state_v1",
+    "action_chaos_toggle",
 }
 
 -- ============================================================
@@ -339,13 +341,14 @@ function AP.Protocol.BuildState(player)
     local guid      = AP.RT.GetGUID(player)
     local accountId = AP.RT.GetAccountId(player)
 
-    local aether, mastery = 0, 0
+    local aether, mastery, chaosEnabled = 0, 0, false
     local q = AP.DB.Query(string.format(
-        "SELECT `aether`, `mastery` FROM `ap_mastery` WHERE `guid` = %d", guid
+        "SELECT `aether`, `mastery`, `chaos_enabled` FROM `ap_mastery` WHERE `guid` = %d", guid
     ))
     if q then
-        aether  = tonumber(tostring(q:GetUInt32(0))) or 0
+        aether  = AP.DB.GetUInt64(q, 0)
         mastery = tonumber(tostring(q:GetUInt32(1))) or 0
+        chaosEnabled = (tonumber(tostring(q:GetUInt32(2))) or 0) == 1
     end
 
     local masteryNextCost = 0
@@ -538,6 +541,17 @@ function AP.Protocol.BuildState(player)
         { "crucible_ceiling_pct", table.concat(crucibleCeilingParts, ",") },
         { "crucible_total_invested", crucibleTotal },
     }
+    local chaos = AP.Chaos.BuildReading(chaosEnabled, attuned, mastery, crucibleTotal)
+    local chaosFields = {
+        {"chaos_enabled",chaos.enabled and 1 or 0},{"chaos_power",chaos.power},
+        {"chaos_magnitude",chaos.magnitude},{"chaos_scale",chaos.scale},
+        {"chaos_ruleset",chaos.ruleset},{"chaos_base",chaos.base},
+        {"chaos_attunement_basis",chaos.attuned},{"chaos_attunement_contribution",chaos.attunementContribution},
+        {"chaos_mastery_rank",chaos.masteryRank},{"chaos_mastery_basis",chaos.masteryBasis},
+        {"chaos_mastery_contribution",chaos.masteryContribution},{"chaos_crucible_basis",chaos.crucibleBasis},
+        {"chaos_crucible_contribution",chaos.crucibleContribution},
+    }
+    for _,pair in ipairs(chaosFields) do fields[#fields+1]=pair end
     if threat.ok then
         local threatFields = {
             {"threat_level",threat.level},{"threat_name",threat.name},{"threat_max",threat.maximum},
@@ -607,6 +621,7 @@ local KNOWN_ACTIONS = {
     visage_apply = true,
     visage_cancel = true,
     visage_notifications = true,
+    chaos_toggle = true,
 }
 
 local CRUCIBLE_AMOUNTS = { [1000]=true, [5000]=true, [10000]=true, [50000]=true, [100000]=true }
@@ -664,6 +679,14 @@ local function HandleAction(player, guid, tokens)
         draft.token=(AP.Protocol.VisagePreviews[guid] and AP.Protocol.VisagePreviews[guid].token or 0)+1; AP.Protocol.VisagePreviews[guid]=draft; ApplyVisagePreviewAuras(player,draft)
         pcall(function() player:RegisterEvent(function(_,_,_,livePlayer) local current=AP.Protocol.VisagePreviews[guid]; if current and current.token==draft.token then RestoreVisage(livePlayer or player,guid); SendEchoes(livePlayer or player,"ACTION_OK",{{"action","visage_cancel"},{"status","EXPIRED"}}) end end,30000,1) end)
         SendEchoes(player,"ACTION_OK",{{"action",name},{"status","PREVIEWING"},{"mode",draft.mode},{"expires_ms",30000},{"primary_effective",draft.primary.effective},{"secondary_effective",draft.secondary.effective}})
+    elseif name == "chaos_toggle" then
+        local enabled = tonumber(tokens[4])
+        if enabled ~= 0 and enabled ~= 1 then SendError(player,"MALFORMED",name); return end
+        local ok = AP.DB.ExecuteCritical(string.format(
+            "INSERT INTO `ap_mastery` (`guid`,`aether`,`mastery`,`chaos_enabled`) VALUES (%d,0,0,%d) "..
+            "ON DUPLICATE KEY UPDATE `chaos_enabled`=%d", guid, enabled, enabled), "AP.Chaos.Toggle")
+        if not ok then SendError(player,"DATABASE_FAILURE",name); return end
+        SendEchoes(player,"ACTION_OK",{{"action",name},{"status","SUCCESS"},{"enabled",enabled}})
     elseif name == "visage_apply" then
         local draft=AP.Protocol.VisagePreviews[guid]; if not draft then SendError(player,"NO_PREVIEW",name); return end
         if not AP.Visage.Cache[guid] then AP.Visage.LoadForChar(guid) end; local c=AP.Visage.Cache[guid]

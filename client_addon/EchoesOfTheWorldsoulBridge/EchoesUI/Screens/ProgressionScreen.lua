@@ -600,6 +600,37 @@ scrollPosition:SetTextColor(unpack(Theme.colors.textMuted))
 scrollPosition:SetPoint("BOTTOMRIGHT", slots.content, "BOTTOMRIGHT", -1, 2)
 Screen.slotScrollPosition = scrollPosition
 
+-- Compact Chaos reading in the documented bridge-foot terminus band. This is
+-- informational only and deliberately does not become a fifth Progression zone.
+local chaosReadout = CreateFrame("Frame", "EchoesUIProgressionChaosReadout", frame)
+chaosReadout:SetSize(322, 28)
+chaosReadout:SetPoint("TOPLEFT", frame, "TOPLEFT", 715, -558)
+chaosReadout:EnableMouse(true)
+local chaosBack = Solid(chaosReadout, "BACKGROUND", {0.008,0.011,0.016,0.78})
+chaosBack:SetAllPoints(chaosReadout)
+local chaosEdge = Solid(chaosReadout, "ARTWORK", Theme.colors.worldsoul)
+chaosEdge:SetSize(3, 22); chaosEdge:SetPoint("LEFT", chaosReadout, "LEFT", 0, 0); chaosEdge:SetAlpha(0.68)
+local chaosText = chaosReadout:CreateFontString(nil, "OVERLAY")
+chaosText:SetFont(Theme.fonts.readable, 11)
+chaosText:SetTextColor(unpack(Theme.colors.text))
+chaosText:SetPoint("CENTER", chaosReadout, "CENTER", 0, 0)
+chaosText:SetWidth(306); chaosText:SetJustifyH("CENTER")
+chaosReadout:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_LEFT"); GameTooltip:ClearLines()
+    GameTooltip:AddLine("Chaos Power", 0.65, 0.88, 1)
+    GameTooltip:AddLine("A reading of your accumulated Echoes progression. It is not a spendable resource and does not replace your actual attributes.", 0.88, 0.82, 0.68, true)
+    GameTooltip:AddLine(" ")
+    GameTooltip:AddLine("Magnitude", 0.65, 0.88, 1)
+    GameTooltip:AddLine("The number order used to express Chaos values. A new Magnitude changes notation, not combat difficulty.", 0.88, 0.82, 0.68, true)
+    GameTooltip:Show()
+end)
+chaosReadout:SetScript("OnLeave", function() GameTooltip:Hide() end)
+Screen.chaosReadout, Screen.chaosText = chaosReadout, chaosText
+UI.Chaos:Subscribe(function(state)
+    chaosText:SetText("CHAOS POWER  "..UI.Chaos:GetPowerText().."    |    "..UI.Chaos:GetMagnitudeDisplayText())
+    if state.enabled then chaosReadout:Show() else chaosReadout:Hide() end
+end)
+
 local ordered = {"back","home","close","mastery","masteryAction","history"}
 for i=1,5 do ordered[#ordered+1] = "attunement"..i end
 for i=1,7 do ordered[#ordered+1] = "slot"..i end

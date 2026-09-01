@@ -2,7 +2,7 @@
 ## Title: Echoes of the Worldsoul Bridge
 ## Notes: Tooltip bridge for the Echoes of the Worldsoul progression system.
 ## Author: vibecoder99
-## Version: 2.0.0-rc1
+## Version: 2.1.0
 ## SavedVariables: AttunementPlusBridgeDB
 
 EchoesOfTheWorldsoulBridge.lua
@@ -10,6 +10,11 @@ EchoesUI\Bootstrap.lua
 EchoesUI\Theme.lua
 EchoesUI\StateStore.lua
 EchoesUI\AnimationController.lua
+EchoesUI\Chaos.lua
+EchoesUI\ChaosCombatText.lua
+EchoesUI\ChaosCombatLog.lua
+EchoesUI\ChaosEquipment.lua
+EchoesUI\ChaosTooltip.lua
 EchoesUI\ScreenManager.lua
 EchoesUI\InputManager.lua
 EchoesUI\Layout.lua
@@ -33,3 +38,4 @@ EchoesUI\Screens\SettingsScreen.lua
 EchoesUI\Screens\AccessibilityScreen.lua
 EchoesUI\Screens\CodexScreen.lua
 EchoesUI\Screens\SearchScreen.lua
+EchoesUI\ChaosOverlay.lua

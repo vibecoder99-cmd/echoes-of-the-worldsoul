@@ -6,7 +6,7 @@
 -- ============================================================
 -- EchoesOfTheWorldsoulBridge.lua
 -- Echoes of the Worldsoul â€” Client AddOn (WoW 3.3.5a / Interface 30300)
--- Version: 2.0.0-rc1
+-- Version: 2.1.0
 -- ============================================================
 -- HOW THE BRIDGE WORKS (read this before editing):
 --
@@ -96,9 +96,17 @@ local APB = {
     -- Prevents duplicate injection when OnTooltipSetItem fires multiple times
     -- for the same tooltip (which 3.3.5 does after any tooltip modification).
     injectedEntry   = nil,
+    tooltipStates   = setmetatable({}, { __mode = "k" }),
+    itemTooltipAugmenters = {},
     attunementSubscribers = {},
     nextAttunementSubscriberId = 0,
 }
+
+function APB:RegisterItemTooltipAugmenter(callback)
+    if type(callback) ~= "function" then return false end
+    self.itemTooltipAugmenters[#self.itemTooltipAugmenters + 1] = callback
+    return true
+end
 
 -- Expose for debugging: /dump APB
 _G["APB"] = APB
@@ -290,38 +298,36 @@ local function AddTooltipLines(tooltip, data)
     end
 end
 
--- ============================================================
--- TOOLTIP LINE INJECTOR
--- Used by the deferred repaint (C_Timer.After) path only.
--- Since we are outside the OnTooltipSetItem call stack here,
--- we need tooltip:Show() to force a resize â€” but we also need
--- the re-entrancy guard to prevent the Show() from triggering
--- OnTooltipSetItem â†’ InjectTooltipLines â†’ Show() loop.
--- ============================================================
-local function InjectTooltipLines(tooltip, data)
-    if not tooltip or not data then return end
-    if APB.injecting then return end
+-- One deterministic post-native seam owns all Echoes item-tooltip additions.
+-- Attunement is always written first; registered presentation modules (Chaos,
+-- etc.) follow in load order. A per-tooltip marker prevents repeated events
+-- from appending or reordering the same block during one tooltip lifecycle.
+local function ApplyItemTooltipAugmentations(tooltip, entry, data)
+    if not tooltip or not entry then return false end
+    local state = APB.tooltipStates[tooltip]
+    if state and state.entry == entry and state.applied then return false end
 
-    APB.injecting = true
-    AddTooltipLines(tooltip, data)
-    tooltip:Show()  -- needed here because we are outside OnTooltipSetItem
-    APB.injecting = false
+    APB.tooltipStates[tooltip] = { entry = entry, applied = true }
+    APB.injectedEntry = entry -- retained for compatibility with older tests/tools
+    if data and not data.ineligible then AddTooltipLines(tooltip, data) end
+    for _, callback in ipairs(APB.itemTooltipAugmenters) do
+        pcall(callback, tooltip, entry, data)
+    end
+    return true
 end
 
--- Rebuild the original item tooltip before applying the response. This removes
--- the transient fetching line instead of stacking final data beneath it. An
--- ineligible response therefore restores the untouched base tooltip exactly.
-local function RebuildTooltip(tooltip, data)
-    if not tooltip or not data or not tooltip.GetItem then return end
-    local _, link = tooltip:GetItem()
-    if not link or not tooltip.ClearLines or not tooltip.SetHyperlink then return end
-
+-- ============================================================
+-- DEFERRED TOOLTIP FINALIZER
+-- A first-hover cache miss leaves Blizzard's native tooltip untouched until
+-- the server answers. The finalizer appends the complete ordered Echoes block
+-- once and calls Show only to resize for those new lines; it never clears or
+-- replays the native tooltip.
+-- ============================================================
+local function FinalizeTooltip(tooltip, data)
+    if not tooltip or not data then return end
     APB.injecting = true
-    APB.injectedEntry = data.entry
-    tooltip:ClearLines()
-    tooltip:SetHyperlink(link)
-    if not data.ineligible then AddTooltipLines(tooltip, data) end
-    tooltip:Show()
+    local changed = ApplyItemTooltipAugmentations(tooltip, data.entry, data)
+    if changed then tooltip:Show() end
     APB.injecting = false
 end
 
@@ -335,26 +341,29 @@ local function OnTooltipSetItem(tooltip)
 
     local entry = GetTooltipItemEntry(tooltip)
     if not entry then return end
-    if IsAttunementRequestExcluded(entry) then return end
+    if IsAttunementRequestExcluded(entry) then
+        ApplyItemTooltipAugmentations(tooltip, entry, nil)
+        return
+    end
 
     APB.hoveredEntry = entry
 
     -- Already injected for this entry in the current tooltip show â€” skip.
     -- This prevents the blink caused by OnTooltipSetItem firing multiple
     -- times for the same tooltip after AddLine modifies it.
-    if APB.injectedEntry == entry then return end
+    local tooltipState = APB.tooltipStates[tooltip]
+    if tooltipState and tooltipState.entry == entry and tooltipState.applied then return end
 
     local cached = DB.cache[entry]
 
     if IsCacheFresh(cached) then
         if cached.ineligible then
-            APB.injectedEntry = entry
+            ApplyItemTooltipAugmentations(tooltip, entry, cached)
             return
         end
         -- Fresh cache hit: add lines once, mark as injected.
         APB.injecting    = true
-        APB.injectedEntry = entry
-        AddTooltipLines(tooltip, cached)
+        ApplyItemTooltipAugmentations(tooltip, entry, cached)
         APB.injecting    = false
         return
     end
@@ -362,7 +371,7 @@ local function OnTooltipSetItem(tooltip)
     -- No fresh cache: request silently. Do NOT touch the tooltip -- it
     -- is optional enrichment, and most first-hover misses turn out to be
     -- ineligible items that should never show any Echoes UI at all. The
-    -- eligible-response repaint (HandleChatMessage/RebuildTooltip) adds
+    -- response finalizer (HandleChatMessage/FinalizeTooltip) adds
     -- the real lines if and when they actually arrive.
     SendRequest(entry)
 end
@@ -370,6 +379,7 @@ end
 local function OnTooltipCleared(tooltip)
     APB.hoveredEntry  = nil
     APB.injectedEntry = nil  -- allow fresh injection next hover
+    APB.tooltipStates[tooltip] = nil
 end
 
 -- Hook GameTooltip
@@ -424,16 +434,14 @@ local function HandleChatMessage(self, event, msg, ...)
     -- APB.hoveredEntry, because OnTooltipCleared may have fired and cleared
     -- hoveredEntry even while the tooltip is still visually open (e.g. on
     -- a brief flicker). This makes the repaint reliable on first hover.
-    if not data.ineligible then
-        C_Timer.After(0, function()
-            for _, tooltip in ipairs({GameTooltip, ItemRefTooltip}) do
-                if tooltip and tooltip:IsVisible() then
-                    local currentEntry = GetTooltipItemEntry(tooltip)
-                    if currentEntry == data.entry then RebuildTooltip(tooltip, data) end
-                end
+    C_Timer.After(0, function()
+        for _, tooltip in ipairs({GameTooltip, ItemRefTooltip}) do
+            if tooltip and tooltip:IsVisible() then
+                local currentEntry = GetTooltipItemEntry(tooltip)
+                if currentEntry == data.entry then FinalizeTooltip(tooltip, data) end
             end
-        end)
-    end
+        end
+    end)
 
     -- Return true = suppress this message from all chat frames.
     return true
@@ -748,7 +756,7 @@ local function HandleEchoesMessage(self, event, msg, ...)
         -- opt-in native frontend is absent or fails to initialize.
         if EchoesUI and EchoesUI.SafeCall and EchoesUI.StateStore and EchoesUI.StateStore.Ingest then
             EchoesUI:SafeCall("StateStore ingest", EchoesUI.StateStore.Ingest,
-                EchoesUI.StateStore, fields, APB.echoes.lastStateTime)
+                EchoesUI.StateStore, fields, APB.echoes.lastStateTime, true)
         end
         EchoesLog("STATE received: essence=" .. tostring(fields.essence) ..
             " mastery_rank=" .. tostring(fields.mastery_rank) ..

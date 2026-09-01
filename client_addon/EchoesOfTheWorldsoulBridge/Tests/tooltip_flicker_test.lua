@@ -22,6 +22,14 @@ end
 
 APB.playerName = "TestPlayer"
 
+local chaosEnabled = true
+APB:RegisterItemTooltipAugmenter(function(tooltip)
+    if chaosEnabled then
+        tooltip:AddLine("Chaos Weapon Reference")
+        tooltip:AddLine("12.0M - 18.0M effective base damage")
+    end
+end)
+
 local function HasEchoesLine(tooltip)
     for _, line in ipairs(tooltip._lines or {}) do
         if type(line) == "string" and line:find("EotW", 1, true) then return true end
@@ -33,9 +41,23 @@ local function Hover(entry)
     -- A real hover on a new item starts from a fresh Blizzard tooltip;
     -- clear any lines left over from a previous mock hover before firing
     -- OnTooltipSetItem, so the mock matches that real-world reset.
-    GameTooltip._lines = {}
+    GameTooltip._lines = { "Mock Item", "12 - 18 Damage" }
     GameTooltip._shown = true
     GameTooltip:SetHyperlink("item:" .. entry .. ":0:0:0:0:0:0:0")
+end
+
+local function CountLine(needle)
+    local count = 0
+    for _, line in ipairs(GameTooltip._lines or {}) do
+        if type(line) == "string" and line:find(needle, 1, true) then count = count + 1 end
+    end
+    return count
+end
+
+local function FindLine(needle)
+    for index, line in ipairs(GameTooltip._lines or {}) do
+        if type(line) == "string" and line:find(needle, 1, true) then return index end
+    end
 end
 
 local function Unhover()
@@ -99,8 +121,41 @@ for _, line in ipairs(GameTooltip._lines or {}) do
     if type(line) == "string" and line:find("0%%", 1, false) then found0 = true end
 end
 if not found0 then fail("eligible zero-progress equipment did not show 0% after the response") end
+local eotwIndex, chaosIndex = FindLine("[EotW]"), FindLine("Chaos Weapon Reference")
+if not eotwIndex or not chaosIndex or eotwIndex >= chaosIndex then
+    fail("ordered seam did not keep Attunement above the Chaos block")
+end
+if CountLine("[EotW]") ~= 1 or CountLine("Chaos Weapon Reference") ~= 1 then
+    fail("first finalized tooltip did not contain exactly one block from each augmenter")
+end
+local beforeRepeat = #GameTooltip._lines
+GameTooltip:SetHyperlink("item:9002:0:0:0:0:0:0:0")
+if #GameTooltip._lines ~= beforeRepeat or CountLine("[EotW]") ~= 1 or CountLine("Chaos Weapon Reference") ~= 1 then
+    fail("repeated OnTooltipSetItem duplicated or reordered augmentation lines")
+end
 Unhover()
-pass("eligible zero-progress equipment shows a real 0% once the response arrives, not ineligible")
+pass("eligible tooltip finalizes once in native -> Attunement -> Chaos order")
+
+-- ============================================================
+-- Chaos OFF / ON lifecycle and different-item reset
+-- ============================================================
+chaosEnabled = false
+Hover(9010)
+DeliverAPTIP("[APTIP] id=9010|prog=10000|cap=10000|snap=0/0/0/0/0|absorb=0/0/0/0/0")
+if CountLine("Chaos Weapon Reference") ~= 0 or CountLine("[EotW] Attuned") ~= 1 then
+    fail("Chaos OFF changed Attunement or left a Chaos tooltip block")
+end
+Unhover()
+chaosEnabled = true
+Hover(9010)
+if CountLine("[EotW] Attuned") ~= 1 or CountLine("Chaos Weapon Reference") ~= 1 then
+    fail("Chaos ON re-hover did not restore exactly one ordered Chaos block")
+end
+if FindLine("[EotW] Attuned") >= FindLine("Chaos Weapon Reference") then
+    fail("Chaos ON re-hover changed canonical block order")
+end
+Unhover()
+pass("Chaos OFF/ON and different tooltip lifecycles reset cleanly")
 
 -- ============================================================
 -- Eligible progressed equipment

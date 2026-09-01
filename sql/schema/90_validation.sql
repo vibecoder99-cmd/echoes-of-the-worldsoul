@@ -35,7 +35,7 @@ SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT
 FROM information_schema.COLUMNS
 WHERE TABLE_SCHEMA = DATABASE()
   AND (
-    (TABLE_NAME = 'ap_mastery' AND COLUMN_NAME IN ('rate_xp','rate_aether','rate_boss','rack_slots'))
+    (TABLE_NAME = 'ap_mastery' AND COLUMN_NAME IN ('rate_xp','rate_aether','rate_boss','rack_slots','chaos_enabled'))
     OR (TABLE_NAME = 'ap_session_state' AND COLUMN_NAME IN ('threat_level','threat_momentum','threat_debt_kills','threat_debt_mult'))
     OR (TABLE_NAME = 'ap_visage' AND COLUMN_NAME IN ('primary_tier_selected','secondary_tier_selected'))
     OR TABLE_NAME IN ('ap_aether_sinks','ap_resonant_drops','ap_rack','ap_dissolved_items','ap_residue','ap_sink_allocation','ap_dissolution_pending')
