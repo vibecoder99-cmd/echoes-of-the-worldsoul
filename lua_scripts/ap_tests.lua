@@ -3101,6 +3101,22 @@ function AP.RunTests(player, filter)
         end
     end
 
+    -- This is a destructive developer regression harness, not a player
+    -- diagnostic. It creates and deletes reserved fixture rows. Refuse to run
+    -- from an in-game caller unless GM authority is positively established,
+    -- and refuse every DB-mutating suite when synchronous fixture writes are
+    -- unavailable. Without this gate cleanup/setup silently fails and stale
+    -- reserved rows produce misleading values across otherwise unrelated
+    -- assertions (the field-reported failure pattern).
+    if player and not (AP.RT and AP.RT.IsGM and AP.RT.IsGM(player, 1)) then
+        Out("REFUSED: #aptest is a GM/developer regression harness and can mutate reserved database fixtures.")
+        return 0, 1
+    end
+    if not (AP.Cap and AP.Cap.Check and AP.Cap.Check("CharDBDirectExecute")) then
+        Out("REFUSED: CharDBDirectExecute is required for isolated fixture setup and cleanup; no tests were run.")
+        return 0, 1
+    end
+
     Out("=== Echoes of the Worldsoul Regression Tests ===")
     if filter then Out("Filter: " .. filter) end
 
@@ -3316,11 +3332,6 @@ local function StartupSelfCheck()
     for _, mid in ipairs({1,2,3,4,5,6,8, 102, 201, 240,244, 250}) do
         expect("GossipSendMenu id " .. mid .. " is registered in ap_ui.lua", REG_SET[mid] ~= nil)
     end
-    -- SENDER_TALENT_STAT = 7 is defined but unused — informational only.
-    if not REG_SET[7] then
-        print("[AP] INFO: SENDER_TALENT_STAT (7) defined in ap_ui.lua but not registered — dead variable.")
-    end
-
     -- Required DB tables
     for _, tbl in ipairs({
         "ap_item_attune", "ap_item_snapshot", "ap_mastery",
@@ -3332,8 +3343,16 @@ local function StartupSelfCheck()
         expect("DB table exists: " .. tbl, q ~= nil)
     end
 
+
+    -- Guarded purchases and durable multi-step recovery require a confirmed
+    -- synchronous write primitive. The installer checks source at install
+    -- time, but runtime can drift after manual copies or ALE changes.
+    expect("SUPPORTED DATABASE WRITE API: CharDBDirectExecute",
+        AP.Cap and AP.Cap.Check and AP.Cap.Check("CharDBDirectExecute"),
+        "missing required synchronous write primitive; guarded purchases fail closed")
+
     if #failures == 0 then
-        AP.Log("Startup self-check OK.")
+        AP.Log("Startup self-check OK (database write API supported).")
     else
         for _, f in ipairs(failures) do
             AP.Log("[AP STARTUP FAIL] " .. f)
@@ -3343,7 +3362,7 @@ local function StartupSelfCheck()
     end
 end
 
-AP.RT.RegisterEvent("server", 3, function()
+AP.RT.RegisterStartup(function()
     -- Layer 1: always run structural self-check
     pcall(StartupSelfCheck)
 

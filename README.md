@@ -5,7 +5,7 @@
 </p>
 
 [![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/badge/release-v2.1.1-blue.svg)](https://github.com/vibecoder99-cmd/echoes-of-the-worldsoul/releases/tag/v2.1.1)
+[![Release](https://img.shields.io/badge/release-v2.1.2-blue.svg)](https://github.com/vibecoder99-cmd/echoes-of-the-worldsoul/releases/tag/v2.1.2)
 [![AzerothCore](https://img.shields.io/badge/AzerothCore-3.3.5a-informational.svg)](https://github.com/azerothcore/azerothcore-wotlk)
 [![Playerbots](https://img.shields.io/badge/Playerbots-optional-lightgrey.svg)](#playerbots-support)
 
@@ -14,9 +14,9 @@ what you do with it: fight with a piece long enough and the Worldsoul begins
 to answer, unlocking permanent stat power, a persistent account-wide
 currency, and cosmetic effects that deepen the longer you stay attuned.
 
-**Current release: [v2.1.1](https://github.com/vibecoder99-cmd/echoes-of-the-worldsoul/releases/tag/v2.1.1)** —
-the Rack spending and installer reliability hotfix for the 2.1.0 Chaos Mode
-feature release. Existing 2.1.0 servers using Rack expansion should upgrade.
+**Current release: [v2.1.2](https://github.com/vibecoder99-cmd/echoes-of-the-worldsoul/releases/tag/v2.1.2)** —
+the spending reliability and ALE runtime compatibility hotfix. Existing 2.1.0
+and 2.1.1 progression remains compatible and requires no reset or database wipe.
 
 Open source (GPLv3), source-based install, no client modifications beyond an
 additive AddOn and DBC patch.
@@ -483,6 +483,7 @@ echoes-of-the-worldsoul/
 ├── RELEASE_NOTES_v2.0.0-rc1.md
 ├── RELEASE_NOTES_v2.1.0.md
 ├── RELEASE_NOTES_v2.1.1.md
+├── ECHOES-2.1.2-RELEASE-NOTES.md
 ├── LICENSE
 └── README.md
 ```
@@ -497,7 +498,8 @@ external prerequisites — see Requirements above).
 Server-runtime gameplay tuning (attunement rates, Essence rewards, Mastery
 thresholds, Crucible sink caps, Rack slot costs, Forge rewards, Visage
 themes) lives in `ap_core.lua`'s `AP.Config` table and the respective
-`ap_*.lua` files — edit and `.reload eluna` in-game, no database change or
+`ap_*.lua` files — edit and use the supported `reload.ale` operator command,
+no database change or
 restart needed. C++ module settings (`EchoesStats.*`,
 `EchoesPlayerbots.*`) live in `etc/modules/*.conf` and take effect on
 restart. Client-side preferences (Accessibility, UI options) are stored by
@@ -507,11 +509,13 @@ the AddOn itself and never touch the server.
 
 ## Testing
 
-**In-game (GM only):** `#aptest` runs the full regression suite — 20 suites,
+**Developer testing only (GM-enforced):** `#aptest` runs the full regression suite — 20 suites,
 214 individual tests, covering math, database, tooltip, anti-spam, quest,
 aether, UI, Forge, Residue, Crucible, Visage, PvP, voice, versioning,
 exploit guards, and every numbered tier's fixes. Run an individual suite
-with e.g. `#aptest tier6` or `#aptest threat`.
+with e.g. `#aptest tier6` or `#aptest threat`. It mutates reserved database
+fixtures, refuses to run without `CharDBDirectExecute`, and should not be used
+as an ordinary player or production troubleshooting command.
 
 **Installer regression (Python, disposable fixtures only):** 200+
 assertions across single-root, split-root, legacy-migration, and

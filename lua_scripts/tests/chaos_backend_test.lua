@@ -1,4 +1,4 @@
-AP = { DB={ValidateSchema=function() return true end}, RT={RegisterEvent=function() end} }
+AP = { DB={ValidateSchema=function() return true end}, RT={RegisterStartup=function() end} }
 assert(pcall(dofile, "lua_scripts/ap_core.lua"))
 
 local function expect(profile, power, magnitude, scale)

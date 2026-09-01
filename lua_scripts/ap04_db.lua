@@ -130,6 +130,10 @@ function AP.DB.IsReady()
     return AP.DB.SchemaReady == true
 end
 
+function AP.DB.CriticalWritesReady()
+    return AP.Cap and AP.Cap.Check and AP.Cap.Check("CharDBDirectExecute") == true
+end
+
 local function metadataCount(sql)
     if type(CharDBQuery) ~= "function" then return nil end
     local ok, q = pcall(CharDBQuery, sql)
@@ -225,7 +229,7 @@ end
 -- available).
 function AP.DB.ExecuteCritical(sql, label)
     if not allowOperationalSQL(sql) then return false end
-    if AP.Cap.Check("CharDBDirectExecute") then
+    if AP.DB.CriticalWritesReady() then
         local ok = pcall(CharDBDirectExecute, sql)
         return ok
     end

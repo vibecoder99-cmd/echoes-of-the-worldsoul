@@ -131,9 +131,9 @@ function AP.Doctor.Report(player)
     emit("============================================================")
     emit(string.format(" Echoes of the Worldsoul — System Doctor v%s",
         AP.VERSION or "?"))
-    emit(string.format(" Profile: %s  |  DML: %s",
+    emit(string.format(" Profile: %s  |  startup event: %s",
         (AP.Profile and AP.Profile.name) or "unknown",
-        (AP.Profile and AP.Profile.dml) and "YES" or "NO"))
+        tostring(AP.Profile and AP.Profile.startupEventId or "unresolved")))
     emit("============================================================")
 
     -- ── RUNTIME ──────────────────────────────────────────────
@@ -256,9 +256,9 @@ function AP.Doctor.Report(player)
     emit(string.format("  %-28s %s",
         "Active profile", (AP.Profile and AP.Profile.name) or "unknown"))
     emit(string.format("  %-28s %s",
-        "DML Docker mode", (AP.Profile and AP.Profile.dml) and "YES" or "NO"))
+        "ALE lifecycle signal", (AP.Profile and AP.Profile.ale) and "CONFIRMED" or "UNRESOLVED"))
     emit(string.format("  %-28s %s",
-        "ALE adapter", "NOT PRESENT (future)"))
+        "Startup event ID", tostring(AP.Profile and AP.Profile.startupEventId or "unresolved")))
 
     -- ── WARNINGS (from AP.Doctor.AddWarning calls) ───────────
     if #AP.Doctor._warnings > 0 then

@@ -26,7 +26,7 @@ AP = AP or {}
 --   MAJOR: breaking schema changes or removed features
 -- The server package version is independent of the client AddOn version.
 -- ============================================================
-AP.VERSION = "2.1.1"
+AP.VERSION = "2.1.2"
 
 -- ============================================================
 -- CAPABILITY FLAGS
@@ -44,9 +44,6 @@ AP.Cap = AP.Cap or {
 -- All tuning lives here. Edit these values to adjust difficulty.
 -- ============================================================
 AP.Config = {
-
-    -- Staged DML/ALE production target identity (non-gameplay setting).
-    DMLMode = true,
 
     -- XP-based attunement (Synastria design)
     -- Progress per item = (XP earned / equippedCount) * XpToAttune * rarityMult
@@ -505,18 +502,33 @@ function AP.Mastery.Purchase(player)
     local newAether  = aether - cost
     local newMastery = mastery + 1
 
-    -- Single atomic UPSERT - identical shape to the pre-E2j5 inline human path in
-    -- ap_ui.lua. AP.DB.ExecuteCritical never silently degrades to async (see ap04_db.lua) -
-    -- if it returns false here, NOTHING was written, so returning DATABASE_FAILURE without
-    -- any further mutation is always safe and never leaves a partial state.
+    -- Bind the purchase to the exact authoritative state just read. A direct
+    -- execute call completing without an exception does not prove that a row
+    -- matched, so a plain overwrite can report false success and can erase a
+    -- concurrent Essence grant. The guarded relative update plus read-back
+    -- makes rapid replay and stale state observable.
     local writeOk = AP.DB.ExecuteCritical(string.format([[
-        INSERT INTO `ap_mastery` (`guid`, `aether`, `mastery`)
-        VALUES (%d, %d, %d)
-        ON DUPLICATE KEY UPDATE `aether` = %d, `mastery` = %d;
-    ]], guid, newAether, newMastery, newAether, newMastery), "AP.Mastery.Purchase")
+        UPDATE `ap_mastery`
+        SET `aether` = `aether` - %d, `mastery` = %d
+        WHERE `guid` = %d AND `aether` = %d AND `mastery` = %d AND `aether` >= %d;
+    ]], cost, newMastery, guid, aether, mastery, cost), "AP.Mastery.Purchase")
 
     if not writeOk then
         return { status = "DATABASE_FAILURE", oldRank = mastery, cost = cost, oldBalance = aether }
+    end
+
+    local verify = AP.DB.Query(string.format(
+        "SELECT `aether`, `mastery` FROM `ap_mastery` WHERE `guid` = %d", guid))
+    local verifiedAether = verify and AP.DB.GetUInt64(verify, 0)
+    local verifiedMastery = verify and tonumber(tostring(verify:GetUInt32(1)))
+    if not verify then
+        return { status = "POST_VERIFY_FAILURE", oldRank = mastery, cost = cost, oldBalance = aether }
+    end
+    if verifiedAether ~= newAether or verifiedMastery ~= newMastery then
+        return {
+            status = "STALE_PREVIEW", oldRank = mastery, newRank = verifiedMastery,
+            cost = cost, oldBalance = aether, newBalance = verifiedAether,
+        }
     end
 
     -- Audit insert is best-effort: the purchase above already committed and remains
@@ -1149,7 +1161,7 @@ function AP.CalculateAbsorptionAccountWide(guid, playerClass, level, masteryRank
     end, "AP.CalculateAbsorptionAccountWide")
     return totals
 end
-AP.RT.RegisterEvent("server", 3, function()  -- EVENT_ON_SERVER_STARTUP
+AP.RT.RegisterStartup(function()
     AP.Try(function()
         AP.Log("Echoes of the Worldsoul core loading...")
 
@@ -1162,10 +1174,8 @@ AP.RT.RegisterEvent("server", 3, function()  -- EVENT_ON_SERVER_STARTUP
         end
 
         AP.InitDB()
-        -- Finalise profile detection now that AP.Config is available.
-        -- ap00_compat.lua defined AP.Compat.Apply(); it must be called here,
-        -- not at load-time, because AP.Config.DMLMode is not readable until
-        -- after ap_core.lua's top-level code has executed.
+        -- Finalise compatibility metadata after the factual ALE startup
+        -- lifecycle capability was established during registration.
         if AP.Compat and AP.Compat.Apply then AP.Compat.Apply() end
         AP.Log("Core initialized. Profile=" .. tostring(AP.Profile and AP.Profile.name or "?")
             .. "  DirectStatMode=" .. tostring(AP.Config.DirectStatMode))

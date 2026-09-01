@@ -97,7 +97,7 @@ touching it -- see `installer/README.md` for full detail on each):
 installer/bin/echoes.sh install ... --with-playerbots --confirm-playerbots-compatible
 
 # Update an existing installer-managed install to a newer package:
-installer/bin/echoes.sh upgrade ... --target-version 2.1.1
+installer/bin/echoes.sh upgrade ... --target-version 2.1.2
 
 # Restore any installer-owned file that's missing or corrupted:
 installer/bin/echoes.sh repair --azerothcore-root /path/to/your/azerothcore
@@ -296,8 +296,8 @@ environment is available. If it produces errors on startup, your Eluna build
 has a problem unrelated to this mod.
 
 **After copying, start (or restart) the worldserver.** Eluna loads scripts at
-startup; there is no hot-reload for the initial load. Once running, individual
-scripts can be reloaded in-game with `.reload eluna`.
+startup. Once running, `reload.ale` rebuilds the Lua state and Echoes
+initializes once from ALE's post-script-load event.
 
 ---
 
@@ -421,9 +421,14 @@ observe — a log line, a chat response, or an in-game result:
 - [ ] Type `#ap crucible` — the Crucible sink panel opens
 - [ ] Log out and back in — Essence balance and attunement progress are preserved
 
-### Regression Tests (GM only)
+### Optional developer regression certification
 
-Run from a GM account in-game:
+`#aptest` is a fixture-mutating developer tool, not a normal installation or
+troubleshooting step. Run it only on an isolated test realm, from a GM account,
+when the runtime reports guarded synchronous database execution support
+(`DirectExecute`). Do not run it casually on a live realm.
+
+For a dedicated certification environment, run:
 
 ```
 #aptest tier4
@@ -432,14 +437,33 @@ Run from a GM account in-game:
 #aptest tier6
 ```
 
-All tests should report PASS. If any test fails, check the worldserver
-console log for details before opening the server to players.
+All tests should report PASS. If any test fails, check the worldserver console
+log and restore the test fixture before continuing. Ordinary installation
+verification does not require these commands; use the checklist above, the
+installer verification command, and startup diagnostics instead.
 
 If all checks pass, the installation is complete.
 
 ---
 
 ## Updating an Existing Install
+
+### Upgrading from 2.1.0 or 2.1.1 to 2.1.2
+
+Run the normal installer-managed upgrade with `--target-version 2.1.2`.
+Existing progression, characters, Rack state, Talents, Mastery, Crucible
+investments, and client settings are preserved. No character reset, database
+wipe, or AzerothCore reinstall is required.
+
+The running `mod-ale` build must expose `CharDBDirectExecute`. Directory
+presence alone is insufficient: `echoes verify` checks the source-inspectable
+API contract, and the runtime startup check reports unsupported status if the
+capability is absent. Do not edit Lua purchase logic or any `DMLMode` setting;
+2.1.2 contains no environment-identity switch. ALE event 33 initializes Echoes
+after all scripts load on fresh boot and after `reload.ale` rebuilds the state.
+
+`#aptest` is a GM/developer fixture harness, not an installation diagnostic.
+It refuses to run without synchronous fixture-write support.
 
 ### Upgrading from 2.0.0-rc1 to 2.1.0
 
@@ -490,7 +514,7 @@ are missing without touching existing data. `sql/schema/ap_schema_version`
 ### Lua scripts
 
 Copy the updated `.lua` files from `lua_scripts/` into the server's Eluna
-scripts folder and run `.reload eluna` in-game, or restart the worldserver.
+scripts folder and run `reload.ale`, or restart the worldserver.
 
 ### AddOn (client)
 
@@ -522,5 +546,5 @@ not affect the running worldserver.
 
 Echoes purchases require ALE's synchronous `CharDBDirectExecute` binding. The
 installer checks inspectable mod-ale source for that API and refuses a known-old
-revision. After deployment, `.reload eluna` must report the capability as
+revision. After deployment, `reload.ale` must report the capability as
 available; otherwise progression can accrue while purchases are rejected.

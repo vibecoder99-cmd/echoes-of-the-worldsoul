@@ -12,6 +12,23 @@ formal versioning and are kept as-is for context.
 
 ---
 
+## 2.1.2 — Reliability & Runtime Compatibility Hotfix
+
+### Fixed
+
+- Made Talent debit and rank advancement one guarded atomic transition with
+  authoritative verification
+- Guarded and verified Mastery purchases against stale or concurrent state
+- Closed the Crucible debit-to-credit crash gap with one atomic multi-table
+  investment update
+- Replaced the historical DML/event-13 startup workaround with ALE's factual
+  post-script-load lifecycle event (33), including rebuilt `reload.ale` states
+- Made missing `CharDBDirectExecute` startup status explicitly unsupported
+- Restricted `#aptest` to positively identified GMs and synchronous fixture
+  writes
+
+Protocol version remains 1; existing progression and schemas upgrade in place.
+
 ## 2.1.1 — Rack Spending & Installer Reliability Hotfix
 
 ### Fixed

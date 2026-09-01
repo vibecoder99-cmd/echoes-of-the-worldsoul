@@ -527,19 +527,57 @@ function AP.API.ExecuteTalentPurchase(player, statIndex)
         local currentStat = preview.current.stats[preview.statIndex]
         local projectedStat = preview.projected.stats[preview.statIndex]
         local newBalance = preview.essence - preview.cost
+
+        -- Ensure the joined target exists before the economic transition. This
+        -- insert is idempotent and carries no value, so a later rejection or
+        -- crash cannot cost the player anything.
+        local rowReady = AP.DB.ExecuteCritical(string.format(
+            "INSERT IGNORE INTO `ap_talents` (`guid`,`stat_index`,`rank`) VALUES (%d,%d,0)",
+            guid, preview.statIndex), "AP.API.ExecuteTalentPurchase.ensure")
+        if not rowReady then
+            return {
+                ok = false, status = "DATABASE_FAILURE", statIndex = preview.statIndex,
+                cost = preview.cost, oldBalance = preview.essence, newBalance = preview.essence,
+            }
+        end
+
+        -- Debit and rank advancement are one guarded InnoDB statement. The
+        -- predicates bind the mutation to the authoritative state used by the
+        -- preview, preventing replay, concurrent overwrite, and currency loss
+        -- if either half of the purchase cannot be applied.
         local writeOk = AP.DB.ExecuteCritical(string.format([[
-            INSERT INTO `ap_mastery` (`guid`, `aether`, `mastery`)
-            VALUES (%d, %d, 0)
-            ON DUPLICATE KEY UPDATE `aether` = %d;
-        ]], guid, newBalance, newBalance), "AP.API.ExecuteTalentPurchase")
+            UPDATE `ap_mastery` AS m
+            JOIN `ap_talents` AS t ON t.`guid` = m.`guid` AND t.`stat_index` = %d
+            SET m.`aether` = m.`aether` - %d, t.`rank` = %d
+            WHERE m.`guid` = %d AND m.`aether` = %d AND m.`aether` >= %d
+              AND t.`rank` = %d;
+        ]], preview.statIndex, preview.cost, projectedStat.rank, guid,
+            preview.essence, preview.cost, currentStat.rank), "AP.API.ExecuteTalentPurchase")
         if not writeOk then
             return {
                 ok = false, status = "DATABASE_FAILURE", statIndex = preview.statIndex,
                 cost = preview.cost, oldBalance = preview.essence, newBalance = preview.essence,
             }
         end
-        AP.SaveTalent(guid, preview.statIndex, projectedStat.rank)
-        AP.DB.Execute("COMMIT;")
+        local verify = AP.DB.Query(string.format(
+            "SELECT m.`aether`, t.`rank` FROM `ap_mastery` AS m " ..
+            "JOIN `ap_talents` AS t ON t.`guid` = m.`guid` AND t.`stat_index` = %d " ..
+            "WHERE m.`guid` = %d", preview.statIndex, guid))
+        local balanceAfter = verify and tonumber(tostring(verify:GetUInt32(0)))
+        local rankAfter = verify and tonumber(tostring(verify:GetUInt32(1)))
+        if not verify then
+            return {
+                ok = false, status = "POST_VERIFY_FAILURE", statIndex = preview.statIndex,
+                cost = preview.cost, oldBalance = preview.essence,
+            }
+        end
+        if balanceAfter ~= newBalance or rankAfter ~= projectedStat.rank then
+            return {
+                ok = false, status = "STALE_PREVIEW", statIndex = preview.statIndex,
+                cost = preview.cost, oldBalance = preview.essence, newBalance = balanceAfter,
+                oldRank = currentStat.rank, newRank = rankAfter,
+            }
+        end
         AP.Log(string.format("Talent: guid=%d stat=%d rank=%d", guid, preview.statIndex, projectedStat.rank))
         return {
             ok = true, status = "SUCCESS", statIndex = preview.statIndex,

@@ -393,8 +393,6 @@ end
 -- ---- TALENTS PAGE ----
 -- Shows all 5 stats with current rank and cost to upgrade.
 -- intid 10-14 = buy rank for stat 0-4
-local SENDER_TALENT_STAT = 7  -- sub-page for stat detail
-
 local function ShowTalentPage(player)
     local guid    = AP.RT.GetGUID(player)
     local rec     = AP.LoadMastery(guid)

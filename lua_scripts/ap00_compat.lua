@@ -35,23 +35,21 @@ end
 AP.Profile = AP.Profile or {
     name  = "unknown",
     eluna = false,
-    dml   = false,
-    ale   = false,   -- future; not implemented
+    ale   = false,
+    startupEventId = nil,
 }
 
 AP.Compat          = AP.Compat          or {}
 AP.Compat.Profiles = AP.Compat.Profiles or {
     NATIVE_ELUNA  = "native-eluna",
-    DML_DOCKER    = "dml-docker",
     UNKNOWN_ELUNA = "unknown-eluna",
-    ALE           = "ale",   -- future; not implemented
+    ALE           = "ale",
 }
 
 -- ── DETECT (load-time, partial) ──────────────────────────────
--- Called immediately below. Sets AP.Profile.eluna and a
--- provisional AP.Profile.name. Cannot check AP.Config.DMLMode
--- here because ap_core.lua (which defines AP.Config) loads after
--- this file. DML detection happens in Apply().
+-- Called immediately below. Sets AP.Profile.eluna and a provisional name.
+-- AP.RT.RegisterStartup later records ALE support from the accepted factual
+-- lifecycle event rather than a deployment-brand flag.
 
 function AP.Compat.Detect()
     if type(RegisterServerEvent) ~= "function" then
@@ -65,22 +63,10 @@ function AP.Compat.Detect()
 end
 
 -- ── APPLY (called from ap_core.lua startup hook) ─────────────
--- By the time this runs, all scripts have loaded and AP.Config
--- is available. Finalizes the profile flags.
+-- Retained as a compatibility no-op for older callers. Factual capability
+-- state is finalized by AP.RT.RegisterStartup.
 
-function AP.Compat.Apply()
-    -- DML opt-in: set AP.Config.DMLMode = true in ap_core.lua
-    -- when deploying to the DML Docker server.
-    if AP.Config and AP.Config.DMLMode == true then
-        AP.Profile.name = AP.Compat.Profiles.DML_DOCKER
-        AP.Profile.dml  = true
-        AP.Profile.ale  = true
-        print("[Echoes] ap00_compat.Apply: profile → dml-docker")
-        return
-    end
-    -- ALE: future; not implemented.
-    -- Profile stays at whatever Detect() set (native-eluna).
-end
+function AP.Compat.Apply() end
 
 -- Run load-time detection immediately.
 AP.Compat.Detect()

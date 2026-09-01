@@ -388,6 +388,22 @@ function AP.Sinks.Invest(player, category, amount)
         )
     end
 
+    -- Ensure the joined sink row exists before any value moves. This is an
+    -- idempotent zero-value preparation step; failure cannot cost Essence.
+    local sinkReady = AP.DB.ExecuteCritical(string.format(
+        "INSERT IGNORE INTO `ap_aether_sinks` (`account_id`,`category`,`invested`) " ..
+        "VALUES (%d,'%s',0)", accountId, category), "AP.Sinks.Invest.ensure")
+    if not sinkReady then
+        return false, "The Worldsoul connection could not prepare this investment. Nothing was spent."
+    end
+    local sinkBeforeRow = AP.DB.Query(string.format(
+        "SELECT `invested` FROM `ap_aether_sinks` WHERE `account_id`=%d AND `category`='%s'",
+        accountId, category))
+    local sinkBefore = sinkBeforeRow and tonumber(tostring(sinkBeforeRow:GetUInt32(0)))
+    if sinkBefore == nil then
+        return false, "The Worldsoul connection could not verify this investment. Nothing was spent."
+    end
+
     -- Two rapid/replayed Invest calls (autoclicker, macro, manually replayed
     -- protocol command) must never both succeed against the same Aether.
     -- The old code deducted via a plain relative "aether - amount" async
@@ -406,46 +422,29 @@ function AP.Sinks.Invest(player, category, amount)
     -- the verify catches that the balance didn't move as expected, and
     -- this call is safely rejected instead of proceeding to credit the sink.
     local wrote = AP.DB.ExecuteCritical(string.format(
-        "UPDATE `ap_mastery` SET `aether` = `aether` - %d WHERE `guid` = %d AND `aether` = %d",
-        amount, guid, currentAether
+        "UPDATE `ap_mastery` AS m JOIN `ap_aether_sinks` AS s " ..
+        "ON s.`account_id`=%d AND s.`category`='%s' " ..
+        "SET m.`aether`=m.`aether`-%d, s.`invested`=s.`invested`+%d " ..
+        "WHERE m.`guid`=%d AND m.`aether`=%d AND m.`aether`>=%d AND s.`invested`=%d",
+        accountId, category, amount, amount, guid, currentAether, amount, sinkBefore
     ), "AP.Sinks.Invest")
     if not wrote then
         return false, "The Worldsoul connection faltered mid-investment. Please try again."
     end
 
     local verify = AP.DB.Query(string.format(
-        "SELECT `aether` FROM `ap_mastery` WHERE `guid` = %d", guid
-    ))
+        "SELECT m.`aether`,s.`invested` FROM `ap_mastery` AS m " ..
+        "JOIN `ap_aether_sinks` AS s ON s.`account_id`=%d AND s.`category`='%s' " ..
+        "WHERE m.`guid`=%d", accountId, category, guid))
     local aetherAfter = verify and tonumber(tostring(verify:GetUInt32(0)))
-    if not verify or aetherAfter ~= currentAether - amount then
+    local sinkAfter = verify and tonumber(tostring(verify:GetUInt32(1)))
+    if not verify or aetherAfter ~= currentAether - amount or sinkAfter ~= sinkBefore + amount then
         return false, "Your Essence balance changed before this investment could complete. Please try again."
     end
 
-    -- NOTE: the Aether deduction above and the sink credit below are still
-    -- two separate commits, not a single cross-table transaction --
-    -- BEGIN/COMMIT via CharDBExecute is NOT atomic on AzerothCore's async
-    -- connection pool (see prior investigation: async worker threads each
-    -- own their own MySQL connection, so BEGIN/COMMIT can land on
-    -- different connections, and the C++ core's own writes share the same
-    -- queue). True atomicity requires AzerothCore's BeginTransaction/
-    -- CommitTransaction C++ API, not exposed to Eluna Lua. The compare-
-    -- and-swap above closes the double-credit/negative-balance race; the
-    -- remaining gap is narrower and already-accepted: a crash strictly
-    -- between the two writes below can deduct Aether without recording
-    -- the sink investment. Non-exploitable (player loses Aether, gains
-    -- nothing) and cannot happen twice for the same amount, since the
-    -- guarded deduction above has already succeeded exactly once.
-    AP.DB.ExecuteAsync(string.format(
-        "INSERT INTO `ap_aether_sinks` (`account_id`, `category`, `invested`) "..
-        "VALUES (%d, '%s', %d) "..
-        "ON DUPLICATE KEY UPDATE `invested` = `invested` + %d",
-        accountId, category, amount, amount
-    ))
-    AP.DB.ExecuteAsync("COMMIT")
-
     -- Update cache
     if not AP.SinkCache[accountId] then AP.SinkCache[accountId] = {} end
-    AP.SinkCache[accountId][category] = (AP.SinkCache[accountId][category] or 0) + amount
+    AP.SinkCache[accountId][category] = sinkAfter
 
     local newInvested = AP.SinkCache[accountId][category]
     local newEffect   = AP.Sinks.GetEffectDisplay(category, newInvested)

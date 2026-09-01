@@ -38,6 +38,20 @@ built with `LUA_VERSION=lua52` — this project's Lua targets 5.2, not the
 more common 5.1. Run `zz_eluna_probe.lua`'s output at startup as a direct
 compatibility check.
 
+## Purchases unavailable / guarded write unavailable
+
+Run `echoes verify`, then inspect the runtime startup capability output for
+`CharDBDirectExecute`. Echoes requires that synchronous ALE database API for
+guarded Talent, Mastery, Rack, Forge, and Crucible transitions. If it is
+missing, 2.1.2 reports the runtime as unsupported and fails purchases closed
+instead of risking a partial write or false success.
+
+Install or upgrade to a compatible `mod-ale` build that exposes
+`CharDBDirectExecute`, then restart worldserver or use `reload.ale` to rebuild
+the Lua state. Do not wipe progression, reinstall AzerothCore, edit Lua
+purchase logic, look for a `DMLMode` switch, or repeatedly run `#aptest`.
+`#aptest` is a GM/developer fixture harness and not a player diagnostic.
+
 ## Installer says `mod-ale` is missing
 
 This is the same prerequisite as "Eluna" elsewhere in the docs — the

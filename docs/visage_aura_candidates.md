@@ -4,7 +4,7 @@ Test each with `#ap testaura <id>` in-game. Remove with `#ap clearaura <id>`.
 
 ## Testing Protocol
 
-1. `.reload eluna`
+1. `reload.ale`
 2. `#ap testaura <id>`
 3. Move character for 10 seconds
 4. Note: follows player? persists? any gameplay effect?

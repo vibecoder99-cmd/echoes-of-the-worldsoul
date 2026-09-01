@@ -515,16 +515,6 @@ AP.RT.RegisterEvent = function(etype, eventId, fn)
     if etype == "server" then
         globalName = "RegisterServerEvent"
         callback = safeHandler(fn)
-        if AP.Config and AP.Config.DMLMode == true and eventId == 3 then
-            mappedId = 13
-            local delivered = false
-            local safe = callback
-            callback = function(...)
-                if delivered then return end
-                delivered = true
-                return safe(...)
-            end
-        end
     elseif etype == "player" then
         globalName = "RegisterPlayerEvent"
         callback = guardedHandler(fn)
@@ -535,6 +525,34 @@ AP.RT.RegisterEvent = function(etype, eventId, fn)
     return safeRegister(globalName, globalName, key, function()
         return _G[globalName](mappedId, callback)
     end)
+end
+
+-- ALE_EVENT_ON_LUA_STATE_OPEN (33) is emitted after every fresh or
+-- reloaded Lua state has executed all scripts. This is the factual lifecycle
+-- capability Echoes needs; it replaces the historical DMLMode remap from the
+-- unimplemented socket-open event (3) to the unrelated world-update event
+-- (13). Guard delivery once per Lua state as defense in depth.
+AP.RT.RegisterStartup = function(fn)
+    if type(fn) ~= "function" then return false end
+    local delivered = false
+    local callback = safeHandler(function(...)
+        if delivered then return end
+        delivered = true
+        return fn(...)
+    end)
+    local eventId = 33
+    local key = registrationKey("server", "startup", eventId, fn)
+    local ok = safeRegister("RegisterServerEvent", "RegisterServerEvent", key, function()
+        return RegisterServerEvent(eventId, callback)
+    end)
+    if ok then
+        AP.Profile = AP.Profile or {}
+        AP.Profile.name = "ale"
+        AP.Profile.eluna = true
+        AP.Profile.ale = true
+        AP.Profile.startupEventId = eventId
+    end
+    return ok
 end
 
 AP.RT.RegisterItemEvent = function(entry, eventId, fn)

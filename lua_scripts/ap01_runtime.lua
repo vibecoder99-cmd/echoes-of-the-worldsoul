@@ -96,6 +96,7 @@ AP.RT.GetPlayersInWorld = function()                return {}    end
 -- Timer / event registration
 AP.RT.CreateTimer     = function(fn, ms, reps)                 end
 AP.RT.RegisterEvent   = function(etype, id, fn) return false end
+AP.RT.RegisterStartup = function(fn) return false end
 AP.RT.RegisterItemEvent = function(entry, id, fn) return false end
 AP.RT.RegisterBGEvent = function(id, fn) return false end
 AP.RT.RegisterPlayerGossipEvent = function(menuId, id, fn) return false end
