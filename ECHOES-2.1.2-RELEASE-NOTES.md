@@ -1,5 +1,10 @@
 # Echoes of the Worldsoul 2.1.2
 
+> Historical compatibility clarification (added in 2.1.4): 2.1.2 correctly
+> fails guarded spending closed when `CharDBDirectExecute` is absent, but the
+> tested stock ALE revision does not provide that binding without the
+> version-locked compatibility patch shipped in Echoes 2.1.4.
+
 ## Reliability & Runtime Compatibility Hotfix
 
 Echoes 2.1.2 is a focused reliability hotfix following real-world installation

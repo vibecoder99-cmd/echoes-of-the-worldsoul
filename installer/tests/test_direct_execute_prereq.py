@@ -27,7 +27,7 @@ def test_old_ale_source_is_rejected():
     root = _root('"CharDBExecute"', "int CharDBExecute(lua_State* L)")
     result = prereq.check_mod_ale_direct_execute(root)
     assert not result.present
-    assert "CharDBDirectExecute" in result.remediation
+    assert "Current stock ALE does not publish this binding" in result.remediation
 
 
 def test_directory_presence_without_inspectable_api_is_rejected():
@@ -35,4 +35,4 @@ def test_directory_presence_without_inspectable_api_is_rejected():
     os.makedirs(os.path.join(root, "modules", "mod-ale"))
     result = prereq.check_mod_ale_direct_execute(root)
     assert not result.present
-    assert "CharDBDirectExecute" in result.remediation
+    assert "Current stock ALE does not publish this binding" in result.remediation

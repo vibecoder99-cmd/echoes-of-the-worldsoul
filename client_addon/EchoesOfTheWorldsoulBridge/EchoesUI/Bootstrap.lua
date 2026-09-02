@@ -4,7 +4,7 @@
 EchoesUI = EchoesUI or {}
 
 local UI = EchoesUI
-UI.version = "2.1.3"
+UI.version = "2.1.4"
 UI.modules = UI.modules or {}
 
 AttunementPlusBridgeDB = AttunementPlusBridgeDB or { cache = {} }

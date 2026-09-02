@@ -97,7 +97,7 @@ touching it -- see `installer/README.md` for full detail on each):
 installer/bin/echoes.sh install ... --with-playerbots --confirm-playerbots-compatible
 
 # Update an existing installer-managed install to a newer package:
-installer/bin/echoes.sh upgrade ... --target-version 2.1.3
+installer/bin/echoes.sh upgrade ... --target-version 2.1.4
 
 # Restore any installer-owned file that's missing or corrupted:
 installer/bin/echoes.sh repair --azerothcore-root /path/to/your/azerothcore
@@ -134,7 +134,8 @@ Before starting, confirm you have:
 - **Eluna Lua scripting engine, via `mod-ale`** — required, not optional.
 
   Required: [`azerothcore/mod-ale`](https://github.com/azerothcore/mod-ale)
-  — use this exact repo for the tested setup. ALE ("AzerothCore Lua
+  — use commit `9eeb1f3c47a81291548874fa4be2f4cde35e2ec3` plus the included
+  compatibility patch for the 2.1.4 tested setup. ALE ("AzerothCore Lua
   Engine") is the actively-maintained successor to the original Eluna
   project, now published under the AzerothCore organization itself. Do
   not substitute an older `mod-eluna` fork unless you know it matches your
@@ -448,9 +449,36 @@ If all checks pass, the installation is complete.
 
 ## Updating an Existing Install
 
-### Upgrading from 2.1.0, 2.1.1, or 2.1.2 to 2.1.3
+### Stock ALE compatibility required for spending
 
-Run the normal installer-managed upgrade with `--target-version 2.1.3`.
+Echoes supports AzerothCore with `mod-ale` when the required synchronous
+database binding is available. Current stock ALE may require the documented
+Echoes compatibility patch until that binding is accepted upstream. Echoes
+2.1.4 certifies official `azerothcore/mod-ale` commit
+`9eeb1f3c47a81291548874fa4be2f4cde35e2ec3` with the included patch.
+
+The preparation command is read-only by default:
+
+```bash
+installer/bin/echoes.sh ale-compat --azerothcore-root /path/to/azerothcore
+```
+
+After reviewing its detected and tested revisions, explicitly consent:
+
+```bash
+installer/bin/echoes.sh ale-compat --azerothcore-root /path/to/azerothcore --apply
+```
+
+The command modifies only two files in `modules/mod-ale`, never rebuilds or
+restarts anything, and refuses unknown revisions. Reconfigure and rebuild your
+AzerothCore `worldserver`, restart it using your normal safe procedure, run
+`echoes verify`, and confirm startup reports `CharDBDirectExecute: YES`.
+`reload.ale` alone is insufficient because this is a compiled C++ binding.
+
+### Upgrading from 2.1.0–2.1.3 to 2.1.4
+
+Prepare and rebuild ALE as described immediately above, then run the normal
+installer-managed upgrade with `--target-version 2.1.4`.
 Existing progression, characters, Rack state, Talents, Mastery, Crucible
 investments, and client settings are preserved. No character reset, database
 wipe, or AzerothCore reinstall is required.
@@ -459,7 +487,7 @@ The running `mod-ale` build must expose `CharDBDirectExecute`. Directory
 presence alone is insufficient: `echoes verify` checks the source-inspectable
 API contract, and the runtime startup check reports unsupported status if the
 capability is absent. Do not edit Lua purchase logic or any `DMLMode` setting;
-2.1.3 contains no environment-identity switch. ALE event 33 initializes Echoes
+2.1.4 contains no environment-identity switch. ALE event 33 initializes Echoes
 after all scripts load on fresh boot and after `reload.ale` rebuilds the state.
 
 `#aptest` is a GM/developer fixture harness, not an installation diagnostic.
@@ -545,6 +573,8 @@ installing when the layout is unusual; installing Lua below the source root may
 not affect the running worldserver.
 
 Echoes purchases require ALE's synchronous `CharDBDirectExecute` binding. The
-installer checks inspectable mod-ale source for that API and refuses a known-old
-revision. After deployment, `reload.ale` must report the capability as
-available; otherwise progression can accrue while purchases are rejected.
+installer checks inspectable mod-ale source for that API. The separate
+`ale-compat` command dry-runs by default, applies only with `--apply`, and
+refuses revisions other than the exact certified stock commit. After rebuilding
+and restarting, runtime startup must report the capability as available;
+otherwise progression can accrue while purchases are rejected.

@@ -36,7 +36,7 @@ AP.Commands = AP.Commands or {}
 -- The server package and client bridge are versioned independently.
 -- AP.VERSION is the server package version; this is the compatible AddOn
 -- protocol/package version reported by EchoesOfTheWorldsoulBridge.toc.
-AP.CLIENT_ADDON_VERSION = "2.1.3"
+AP.CLIENT_ADDON_VERSION = "2.1.4"
 
 -- Session-level anti-cheese toggle per player guid
 AP.AntiCheeseDisabled = AP.AntiCheeseDisabled or {}

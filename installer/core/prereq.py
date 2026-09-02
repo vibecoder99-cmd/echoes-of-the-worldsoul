@@ -58,9 +58,12 @@ def check_mod_ale_direct_execute(azerothcore_root):
     return PrereqResult(
         "mod-ale CharDBDirectExecute", False,
         remediation=(
-            "The installed mod-ale source does not expose CharDBDirectExecute, "
-            "which Echoes requires for synchronous, post-verified purchases. "
-            "Update mod-ale to a revision that implements and registers "
-            "CharDBDirectExecute, rebuild worldserver, and rerun the installer."
+            "Your installed stock ALE build does not expose CharDBDirectExecute, "
+            "which Echoes requires for synchronous guarded mutations. Current "
+            "stock ALE does not publish this binding. Run 'echoes ale-compat "
+            "--azerothcore-root <path>' for a read-only compatibility check; for "
+            "a supported revision, re-run it with --apply, rebuild worldserver, "
+            "and verify the runtime reports CharDBDirectExecute: YES. No "
+            "progression wipe is required."
         ),
     )

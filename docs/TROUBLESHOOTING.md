@@ -46,9 +46,19 @@ guarded Talent, Mastery, Rack, Forge, and Crucible transitions. If it is
 missing, 2.1.2 reports the runtime as unsupported and fails purchases closed
 instead of risking a partial write or false success.
 
-Install or upgrade to a compatible `mod-ale` build that exposes
-`CharDBDirectExecute`, then restart worldserver or use `reload.ale` to rebuild
-the Lua state. Do not wipe progression, reinstall AzerothCore, edit Lua
+Current stock ALE at Echoes' tested commit does not expose this binding. From
+the Echoes repository, first run the read-only compatibility check:
+
+```bash
+installer/bin/echoes.sh ale-compat --azerothcore-root /path/to/azerothcore
+```
+
+If it reports the exact supported revision, explicitly apply the included
+patch by adding `--apply`, then reconfigure/rebuild `worldserver` and restart
+it. `reload.ale` only rebuilds Lua state; it cannot add a missing compiled C++
+binding. Run `echoes verify` and confirm startup reports
+`CharDBDirectExecute: YES`. Unknown ALE revisions are deliberately refused.
+Do not wipe progression, reinstall AzerothCore, edit Lua
 purchase logic, look for a `DMLMode` switch, or repeatedly run `#aptest`.
 `#aptest` is a GM/developer fixture harness and not a player diagnostic.
 

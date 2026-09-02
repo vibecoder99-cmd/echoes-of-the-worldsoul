@@ -1,0 +1,1 @@
+compat/mod-ale/*.patch -text -diff

@@ -1,5 +1,9 @@
 # Echoes of the Worldsoul 2.1.3
 
+> Historical compatibility clarification (added in 2.1.4): 2.1.3 retained the
+> correct fail-closed spending guard, but did not yet ship the stock ALE
+> `CharDBDirectExecute` compatibility patch now provided by Echoes 2.1.4.
+
 ## Interaction Reliability & Feedback Maintenance Release
 
 Echoes 2.1.3 improves how the Client Companion communicates interaction

@@ -12,6 +12,22 @@ formal versioning and are kept as-is for context.
 
 ---
 
+## 2.1.4 — Stock ALE Compatibility Corrective Release
+
+### Fixed
+
+- Shipped the minimal `CharDBDirectExecute` binding patch required for Echoes'
+  guarded, synchronously verified character-database transitions
+- Locked automatic patch preparation to official `azerothcore/mod-ale` commit
+  `9eeb1f3c47a81291548874fa4be2f4cde35e2ec3`
+- Added an explicit-consent `echoes ale-compat --apply` workflow; its default
+  mode is read-only, and unknown revisions are refused without modification
+- Corrected public guidance that previously implied current stock ALE already
+  provided the required binding
+
+Protocol version remains 1. No gameplay, balance, schema, or progression
+changes are included.
+
 ## 2.1.3 — Interaction Reliability & Feedback Maintenance
 
 ### Improved

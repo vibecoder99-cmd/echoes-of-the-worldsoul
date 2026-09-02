@@ -39,8 +39,10 @@ it is external and not distributed in this repository.
 | Dad's MMO Lab WotLK guide | [`guides/wow-wotlk`](https://github.com/DadsMmoLab/dads-mmo-lab/blob/main/guides/wow-wotlk/README.md) | Covers a from-scratch AzerothCore + Playerbots WotLK setup |
 | Echoes | this repository | — |
 
-**Important ALE clarification:** Echoes is tested with AzerothCore's current
-ALE module (`azerothcore/mod-ale`) — **ALE** stands for "AzerothCore Lua
+**Important ALE clarification:** Echoes 2.1.4 is tested with official
+`azerothcore/mod-ale` commit
+`9eeb1f3c47a81291548874fa4be2f4cde35e2ec3` plus Echoes' version-locked
+`CharDBDirectExecute` compatibility patch. **ALE** stands for "AzerothCore Lua
 Engine," the actively-maintained successor to the original Eluna project,
 now published under the AzerothCore organization itself. Do not substitute
 an older `mod-eluna` fork (for example `araxiaonline/mod-eluna` or
@@ -56,13 +58,12 @@ Being precise about what actually has a recorded pin, and what doesn't:
 |---|---|---|
 | `mod-individual-progression` (ZhengPeiRu21) | `df1016444abcc21d025885282799ba76bebea627`, branch `master` | Recorded during compatibility testing — see [docs/COMPATIBILITY.md](COMPATIBILITY.md) |
 | AzerothCore | Not pinned to an exact commit in current release records | — |
-| `mod-ale` | Not pinned to an exact commit in current release records | — |
+| `mod-ale` | `9eeb1f3c47a81291548874fa4be2f4cde35e2ec3`, branch `master`, plus `compat/mod-ale/0001-expose-chardb-directexecute.patch` | Echoes 2.1.4 stock-ALE compatibility certification |
 | `mod-playerbots` / Playerbots fork of AzerothCore | Not pinned to an exact commit — described only as "the documented AzerothCore/Playerbots environment used for this release" | See [docs/COMPATIBILITY.md](COMPATIBILITY.md) §3 |
 
-**This is a real gap, not an oversight being papered over.** If you need to
-reproduce Echoes' tested environment exactly rather than approximately,
-open an issue — closing this gap (recording exact commits at the next
-certification pass) is worth doing, but no hash is invented here to fill it.
+The ALE pin above is exact for the 2.1.4 compatibility patch. AzerothCore and
+Playerbots remain reference-project descriptions where the release record does
+not provide an exact pin; no hash is invented for them.
 
 ## 4. DML Reference Environment
 
@@ -79,8 +80,8 @@ environments from scratch, Dad's MMO Lab publishes a public
 [AzerothCore + Playerbots WotLK guide](https://github.com/DadsMmoLab/dads-mmo-lab/blob/main/guides/wow-wotlk/README.md)
 that clones the same `mod-playerbots/azerothcore-wotlk` and
 `mod-playerbots/mod-playerbots` repositories listed in §2 above. You are not
-required to use DML — any AzerothCore 3.3.5a environment with `mod-ale`
-built in works.
+required to use DML. Other AzerothCore 3.3.5a environments may work, but the
+required synchronous ALE binding must be present and runtime-verified.
 
 ## 5. Required vs. Optional Dependencies
 
@@ -107,12 +108,11 @@ the full explanation of what Echoes does and doesn't add to a client.
 
 ## 8. Reproduction Notes
 
-Reproducing Echoes' tested environment *closely* is straightforward: clone
-`azerothcore/azerothcore-wotlk`, add `azerothcore/mod-ale`, follow
-[INSTALL.md](../INSTALL.md). Reproducing it *exactly* (byte-identical
-commits) is only possible where §3 above lists a pin — for everything else,
-"upstream/reference project" is the accurate description, not a claim of
-exact pin equivalence.
+Reproducing the certified ALE portion is straightforward: check out the pinned
+commit above, run the read-only `echoes ale-compat` check, explicitly apply it,
+and rebuild as documented in [INSTALL.md](../INSTALL.md). Exact whole-stack
+reproduction is only possible where §3 lists a pin; for everything else,
+"upstream/reference project" remains the accurate description.
 
 ## 9. Fork/Version Caveats
 

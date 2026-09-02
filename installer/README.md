@@ -107,9 +107,10 @@ On Windows, use `installer\bin\echoes.ps1` in place of `python installer/cli.py`
 ## Component model
 
 - **Core required**: Echoes Lua (`lua_scripts/`), `mod-echoes-stats`,
-  the SQL package. `mod-ale` is checked as an external prerequisite
-  (never installed by this tool) -- install fails with clear remediation
-  if it's missing.
+  the SQL package. `mod-ale` is an external prerequisite. The ordinary install
+  path never modifies it and fails with clear remediation if the required
+  binding is absent; the separate `ale-compat` command is the only opt-in
+  compatibility-patch path.
 - **Client recommended**: Client Companion AddOn + patch-E.MPQ, only
   attempted if `--client-root` is supplied. patch-E.MPQ ("E" for
   Echoes) is this project's own reserved client-patch slot -- not the
@@ -175,3 +176,19 @@ For an unmistakable DML layout (`modules/` at the checkout root and both
 roots resolve to `env/dist`. Explicit `--lua-root` and `--config-root` always
 win. `verify` also checks inspectable mod-ale source for the synchronous
 `CharDBDirectExecute` API required by spending paths.
+
+## Stock ALE compatibility preparation
+
+Echoes 2.1.4 includes a minimal patch for official `azerothcore/mod-ale`
+commit `9eeb1f3c47a81291548874fa4be2f4cde35e2ec3`. Inspect compatibility without
+changing source:
+
+```bash
+installer/bin/echoes.sh ale-compat --azerothcore-root /path/to/azerothcore
+```
+
+Add `--apply` only after reviewing the output. The command checks the exact
+revision and patch checksum, changes only the two documented ALE binding files,
+and refuses unknown revisions. It does not build or restart the server. Rebuild
+`worldserver`, restart it safely, run `echoes verify`, and require runtime
+startup output `CharDBDirectExecute: YES` before treating spending as supported.

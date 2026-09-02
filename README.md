@@ -5,7 +5,7 @@
 </p>
 
 [![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/badge/release-v2.1.3-blue.svg)](https://github.com/vibecoder99-cmd/echoes-of-the-worldsoul/releases/tag/v2.1.3)
+[![Release](https://img.shields.io/badge/release-v2.1.4-blue.svg)](https://github.com/vibecoder99-cmd/echoes-of-the-worldsoul/releases/tag/v2.1.4)
 [![AzerothCore](https://img.shields.io/badge/AzerothCore-3.3.5a-informational.svg)](https://github.com/azerothcore/azerothcore-wotlk)
 [![Playerbots](https://img.shields.io/badge/Playerbots-optional-lightgrey.svg)](#playerbots-support)
 
@@ -14,10 +14,11 @@ what you do with it: fight with a piece long enough and the Worldsoul begins
 to answer, unlocking permanent stat power, a persistent account-wide
 currency, and cosmetic effects that deepen the longer you stay attuned.
 
-**Current release: [v2.1.3](https://github.com/vibecoder99-cmd/echoes-of-the-worldsoul/releases/tag/v2.1.3)** —
-the interaction reliability and feedback maintenance release. Existing 2.1.0,
-2.1.1, and 2.1.2 progression remains compatible and requires no reset or
-database wipe.
+**Current release: [v2.1.4](https://github.com/vibecoder99-cmd/echoes-of-the-worldsoul/releases/tag/v2.1.4)** —
+the stock-ALE compatibility corrective release. Existing progression remains
+compatible and requires no reset or database wipe. Server operators using the
+tested stock ALE revision must apply the included compatibility patch and
+rebuild; see [INSTALL.md](INSTALL.md#stock-ale-compatibility-required-for-spending).
 
 Open source (GPLv3), source-based install, no client modifications beyond an
 additive AddOn and DBC patch.
@@ -380,7 +381,7 @@ rights beyond what's stated here.
 | Component | Status | Notes |
 |---|---|---|
 | AzerothCore 3.3.5a | Required | Source checkout, buildable with CMake — a binary-only install is not sufficient |
-| [`azerothcore/mod-ale`](https://github.com/azerothcore/mod-ale) (ALE/Eluna) | Required | External prerequisite, not bundled. Build with `LUA_VERSION=lua52`. Not an older `mod-eluna` fork — see [Tested / Reference Environment](#tested--reference-environment) |
+| [`azerothcore/mod-ale`](https://github.com/azerothcore/mod-ale) (ALE/Eluna) | Required | External prerequisite. 2.1.4 certifies commit `9eeb1f3c...` plus the included binding patch; build with `LUA_VERSION=lua52` — see [Tested / Reference Environment](#tested--reference-environment) |
 | MySQL / MariaDB | Required | `acore_characters`/`acore_world`/`acore_auth` must already exist |
 | WoW 3.3.5a client (build 12340, enUS) | Required | Clean/unmodified copy — see [This Is Not a Repack](#this-is-not-a-repack) |
 | Playerbots (`mod-playerbots`) | Optional | See [Playerbots Support](#playerbots-support) |
@@ -400,9 +401,10 @@ probe you can run against your own build.
 
 ## Tested / Reference Environment
 
-Echoes is tested with AzerothCore's current **ALE** module
-(`azerothcore/mod-ale`) — ALE is the actively-maintained AzerothCore Lua
-Engine used by the current tested setup. **Do not substitute an older
+Echoes 2.1.4 is tested with official **ALE** commit
+`9eeb1f3c47a81291548874fa4be2f4cde35e2ec3` plus the included
+`CharDBDirectExecute` patch. ALE is the AzerothCore Lua Engine used by the
+tested setup. **Do not substitute an older
 `mod-eluna` fork** unless you know it matches your AzerothCore revision;
 a stale fork is a common cause of confusing compile errors that look like
 an Echoes problem but aren't.
@@ -410,7 +412,7 @@ an Echoes problem but aren't.
 | Component | Tested/reference project | Notes |
 |---|---|---|
 | AzerothCore | [`azerothcore/azerothcore-wotlk`](https://github.com/azerothcore/azerothcore-wotlk) | The WotLK core Echoes is built as a module for |
-| Lua engine | [`azerothcore/mod-ale`](https://github.com/azerothcore/mod-ale) | Required by Echoes |
+| Lua engine | [`azerothcore/mod-ale`](https://github.com/azerothcore/mod-ale) commit `9eeb1f3c47a81291548874fa4be2f4cde35e2ec3` + Echoes compatibility patch | Required by Echoes |
 | Playerbots | [`mod-playerbots/mod-playerbots`](https://github.com/mod-playerbots/mod-playerbots) + [`mod-playerbots/azerothcore-wotlk`](https://github.com/mod-playerbots/azerothcore-wotlk) | Optional Echoes integration |
 | Dad's MMO Lab | [`DadsMmoLab/dads-mmo-lab`](https://github.com/DadsMmoLab/dads-mmo-lab) | One environment Echoes has been extensively tested in — not required |
 | Echoes | this repo | — |
@@ -484,7 +486,7 @@ echoes-of-the-worldsoul/
 ├── RELEASE_NOTES_v2.0.0-rc1.md
 ├── RELEASE_NOTES_v2.1.0.md
 ├── RELEASE_NOTES_v2.1.1.md
-├── ECHOES-2.1.3-RELEASE-NOTES.md
+├── ECHOES-2.1.4-RELEASE-NOTES.md
 ├── LICENSE
 └── README.md
 ```

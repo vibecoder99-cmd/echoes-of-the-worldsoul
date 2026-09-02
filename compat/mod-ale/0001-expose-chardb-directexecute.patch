@@ -1,0 +1,60 @@
+From: Echoes of the Worldsoul compatibility maintainers
+Subject: [PATCH] feat(lua): expose synchronous character database execute helper
+
+Tested upstream: azerothcore/mod-ale
+Tested branch: master
+Tested commit: 9eeb1f3c47a81291548874fa4be2f4cde35e2ec3
+Purpose: expose AzerothCore's synchronous one-way CharacterDatabase execution
+         primitive to Lua for guarded mutation followed by authoritative read-back.
+Expected files touched:
+  src/LuaEngine/LuaFunctions.cpp
+  src/LuaEngine/methods/GlobalMethods.h
+Expected symbol added: CharDBDirectExecute
+
+This patch contains no Echoes-specific gameplay logic.
+
+diff --git a/src/LuaEngine/LuaFunctions.cpp b/src/LuaEngine/LuaFunctions.cpp
+index 5ba27fd..6500ca7 100644
+--- a/src/LuaEngine/LuaFunctions.cpp
++++ b/src/LuaEngine/LuaFunctions.cpp
+@@ -159,6 +159,7 @@ luaL_Reg GlobalMethods[] =
+     { "CharDBQuery", &LuaGlobalFunctions::CharDBQuery },
+     { "CharDBQueryAsync", &LuaGlobalFunctions::CharDBQueryAsync },
+     { "CharDBExecute", &LuaGlobalFunctions::CharDBExecute },
++    { "CharDBDirectExecute", &LuaGlobalFunctions::CharDBDirectExecute },
+     { "AuthDBQuery", &LuaGlobalFunctions::AuthDBQuery },
+     { "AuthDBQueryAsync", &LuaGlobalFunctions::AuthDBQueryAsync },
+     { "AuthDBExecute", &LuaGlobalFunctions::AuthDBExecute },
+diff --git a/src/LuaEngine/methods/GlobalMethods.h b/src/LuaEngine/methods/GlobalMethods.h
+index cebb7bc..145ed98 100644
+--- a/src/LuaEngine/methods/GlobalMethods.h
++++ b/src/LuaEngine/methods/GlobalMethods.h
+@@ -1619,6 +1619,26 @@ namespace LuaGlobalFunctions
+         return 0;
+     }
+ 
++    /**
++     * Executes a SQL query synchronously on the character database.
++     *
++     * Unlike [Global:CharDBExecute], this method blocks until execution has
++     * completed. Any results produced are ignored.
++     *
++     * @param string sql : query to execute
++     */
++    int CharDBDirectExecute(lua_State* L)
++    {
++        const char* query = ALE::CHECKVAL<const char*>(L, 1);
++
++        int numArgs = lua_gettop(L);
++        if (numArgs > 1)
++            query = ALE::FormatQuery(L, query).c_str();
++
++        CharacterDatabase.DirectExecute(query);
++        return 0;
++    }
++
+     /**
+      * Executes a SQL query on the login database and returns an [ALEQuery].
+      *
+-- 
+2.51.0.windows.1

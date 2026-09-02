@@ -17,7 +17,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from core import client_package, discovery, install, prereq, repair, uninstall, upgrade, verify
+from core import ale_compat, client_package, discovery, install, prereq, repair, uninstall, upgrade, verify
 
 
 def _mysql_args(args):
@@ -116,6 +116,16 @@ def cmd_uninstall(args):
         "skipped_missing": report.skipped_missing,
         "database_action": report.database_action,
     }, indent=2))
+    return 0
+
+
+def cmd_ale_compat(args):
+    try:
+        result = ale_compat.prepare(args.azerothcore_root, apply=args.apply)
+    except ale_compat.ALECompatError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    print(json.dumps(result.as_dict(), indent=2))
     return 0
 
 
@@ -254,7 +264,7 @@ def build_parser():
              "pre-installer legacy install) to a newer Echoes package.",
     )
     add_install_like(sp)
-    sp.add_argument("--target-version", required=True, help="Version string to record as installed, e.g. 2.1.3.")
+    sp.add_argument("--target-version", required=True, help="Version string to record as installed, e.g. 2.1.4.")
     sp.set_defaults(func=cmd_upgrade)
 
     sp = sub.add_parser(
@@ -277,6 +287,17 @@ def build_parser():
     )
     add_common_ac(sp)
     sp.set_defaults(func=cmd_uninstall)
+
+    sp = sub.add_parser(
+        "ale-compat",
+        help="Dry-run or explicitly apply the version-checked mod-ALE synchronous-write compatibility patch.",
+    )
+    add_common_ac(sp)
+    sp.add_argument(
+        "--apply", action="store_true",
+        help="Explicitly consent to applying the tested patch. Without this flag the command is read-only.",
+    )
+    sp.set_defaults(func=cmd_ale_compat)
 
     return p
 
