@@ -55,8 +55,8 @@ World Threat persistence remains asynchronous. The latest Threat setting may
 revert if worldserver crashes immediately after it changes. This does not lose
 currency or items and does not corrupt progression.
 
-## Acknowledgement
+## Community testing
 
-Thanks to community testers who provided detailed runtime logs and real-world
-installation feedback that helped identify compatibility and reliability edge
-cases.
+Special thanks to Reddit users Economy_Progress6405 and Weird_Expert_1999 for
+detailed real-world testing reports, troubleshooting, logs, and feedback that
+helped identify reliability and compatibility issues addressed in this release.
