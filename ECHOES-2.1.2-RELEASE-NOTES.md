@@ -57,6 +57,8 @@ currency or items and does not corrupt progression.
 
 ## Community testing
 
-Special thanks to Reddit users Economy_Progress6405 and Weird_Expert_1999 for
-detailed real-world testing reports, troubleshooting, logs, and feedback that
-helped identify reliability and compatibility issues addressed in this release.
+Special thanks to community tester snakeshot, who reached me through the Reddit
+accounts Economy_Progress6405 and Weird_Expert_1999. His detailed real-world
+testing, troubleshooting video, logs, and reports directly helped identify the
+reliability and interaction-feedback issues addressed across the recent Echoes
+updates.

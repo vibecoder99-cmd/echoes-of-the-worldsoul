@@ -44,6 +44,8 @@ afterward. Client-local actions do not generate fake server traffic.
 
 ## Community testing
 
-Special thanks to Reddit user Economy_Progress6405 for the detailed video
-troubleshooting that exposed several interaction-feedback ambiguities, and to
-Weird_Expert_1999 for earlier real-world testing and reports.
+Special thanks to community tester snakeshot, who reached me through the Reddit
+accounts Economy_Progress6405 and Weird_Expert_1999. His detailed real-world
+testing, troubleshooting video, logs, and reports directly helped identify the
+reliability and interaction-feedback issues addressed across the recent Echoes
+updates.
