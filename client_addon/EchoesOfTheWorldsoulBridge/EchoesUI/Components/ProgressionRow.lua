@@ -19,6 +19,7 @@ function Row:Create(parent, options)
     object.hovered = false
     object.pressed = false
     object.pending = false
+    object.acknowledged = false
     object.onActivate = options.onActivate
     object.tooltip = options.tooltip
     object.width = options.width
@@ -144,7 +145,7 @@ function Row:ShowTooltip()
 end
 
 function Row:Render()
-    local alpha = self.pressed and 0.24 or (self.focused and 0.16 or (self.hovered and 0.08 or 0))
+    local alpha = (self.pressed or self.acknowledged) and 0.24 or (self.focused and 0.16 or (self.hovered and 0.08 or 0))
     self.selection:SetAlpha(self.pending and 0.10 or (self.enabled and alpha or 0))
     self.edge:SetAlpha(self.pending and 0.74
         or (self.enabled and (self.focused and 0.95 or (self.hovered and 0.62 or 0.35)) or 0.16))
@@ -167,9 +168,20 @@ function Row:SetPending(value)
     self:Render()
 end
 function Row:Activate(source)
-    if not self.enabled or self.pending then return false end
-    if self.onActivate then UI:SafeCall("Progression row " .. self.id, self.onActivate, self, source) end
-    return true
+    if not self.enabled or self.pending then
+        UI:Trace("control." .. self.id, source, self.pending and "pending" or "disabled")
+        return false
+    end
+    self.acknowledged = true
+    self:Render()
+    local ok = true
+    if self.onActivate then ok = UI:SafeCall("Progression row " .. self.id, self.onActivate, self, source) end
+    UI:Trace("control." .. self.id, source, ok and "activated" or "error")
+    C_Timer.After(Theme.timing.click, function()
+        self.acknowledged = false
+        self:Render()
+    end)
+    return ok
 end
 
 UI.ProgressionRow = Row

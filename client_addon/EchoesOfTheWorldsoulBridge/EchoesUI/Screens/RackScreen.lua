@@ -181,7 +181,7 @@ function Screen:Refresh(values)
     ordered[#ordered+1]="rackExpand"; self.input:SetNavigation(ordered,nav)
 end
 function Screen:Begin(action,...)
-    if self.pending then return false end; self.pending=true; self.pendingAction=action; self.status:SetText("The Rack is settling…"); self:Refresh(UI.StateStore.values); APB:RequestEchoesAction(action,...)
+    if self.pending then self.status:SetText("The Rack is already answering the current request."); return false end; self.pending=true; self.pendingAction=action; self.status:SetText("The Rack is settling…"); self:Refresh(UI.StateStore.values); if not (APB and APB.RequestEchoesAction and APB:RequestEchoesAction(action,...)) then self.pending=false; self.pendingAction=nil; self.status:SetText("Rack request could not be dispatched. Check the Worldsoul connection."); self:Refresh(UI.StateStore.values); UI:Trace("request."..action,"ui","dispatch-failed"); return false end; UI:Trace("request."..action,"ui","dispatched")
     self.pendingToken=(self.pendingToken or 0)+1; local token=self.pendingToken; C_Timer.After(5,function() if Screen.active and Screen.pending and Screen.pendingToken==token then Screen.pending=false; Screen.status:SetText("No response received. State has been requested again."); Screen:Refresh(UI.StateStore.values); APB:RequestEchoesState() end end); return true
 end
 function Screen:Add(index) local item=self.eligible and self.eligible[index]; if item then return self:Begin("rack_add",item.entry) end end
@@ -189,7 +189,7 @@ function Screen:Remove(slot) local item; for _,entry in ipairs(self.entries or {
 function Screen:Expand() return self:Begin("rack_expand") end
 function Screen:OnAction(verb,fields)
     if not self.active or not self.pending then return end
-    if verb=="ACTION_OK" and fields.action==self.pendingAction then self.pending=false; self.pendingToken=(self.pendingToken or 0)+1; self.status:SetText(fields.status=="SUCCESS" and "Rack state committed." or (fields.status or "Rack request rejected.")); self:Refresh(UI.StateStore.values); APB:RequestEchoesState()
+    if verb=="ACTION_OK" and fields.action==self.pendingAction then local action=self.pendingAction; self.pending=false; self.pendingToken=(self.pendingToken or 0)+1; local successCopy=action=="rack_add" and "The Rack accepts the attunement." or (action=="rack_remove" and "The Rack releases the attunement." or ("The Rack unfolds to "..tostring(fields.new_slots or "its new capacity").." cradles.")); self.status:SetText(fields.status=="SUCCESS" and successCopy or (fields.status or "Rack request rejected.")); self:Refresh(UI.StateStore.values); APB:RequestEchoesState()
     elseif verb=="ERROR" then self.pending=false; self.pendingToken=(self.pendingToken or 0)+1; self.status:SetText("Rack request unavailable: "..tostring(fields.code or "ERROR")); self:Refresh(UI.StateStore.values) end
 end
 function Screen:UpdateScale() self.frame:SetScale(math.min((UIParent:GetWidth() or 1672)/1672,(UIParent:GetHeight() or 941)/941)) end

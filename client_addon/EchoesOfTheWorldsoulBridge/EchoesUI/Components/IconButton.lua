@@ -205,20 +205,20 @@ function IconButton:SetEnabled(enabled)
 end
 
 function IconButton:Activate(source)
-    if not self.enabled then return false end
+    if not self.enabled then UI:Trace("control." .. self.id, source, "disabled"); return false end
     self.selected = true
     self.pressed = false
     self:Render(true)
 
-    if self.onActivate then
-        UI:SafeCall(self.id .. " activation", self.onActivate, self, source)
-    end
+    local ok = true
+    if self.onActivate then ok = UI:SafeCall(self.id .. " activation", self.onActivate, self, source) end
+    UI:Trace("control." .. self.id, source, ok and "activated" or "error")
 
     C_Timer.After(Theme.timing.click, function()
         self.selected = false
         self:Render()
     end)
-    return true
+    return ok
 end
 
 function IconButton:Render(immediate)

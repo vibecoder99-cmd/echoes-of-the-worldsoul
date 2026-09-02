@@ -413,11 +413,20 @@ function Screen:RequestAction(name)
         return false
     end
     local control=self.actionControls[name]
-    if not control or not control.enabled or not APB or not APB.RequestEchoesAction then return false end
+    if not control then self.status:SetText("World Threat is unavailable right now."); return false end
+    if not control.enabled then
+        if not self.hasState then self.status:SetText("World Threat is unavailable right now.")
+        elseif name=="threat_increase" and self.level>=self.maximum then self.status:SetText("Threat cannot be raised any further.")
+        elseif name=="threat_decrease" and self.level<=0 then self.status:SetText("Threat cannot be lowered any further.")
+        elseif name=="threat_reset" and self.level<=0 then self.status:SetText("The world is already answering at this level.")
+        else self.status:SetText("World Threat is unavailable right now.") end
+        return false
+    end
+    if not APB or not APB.RequestEchoesAction then self.status:SetText("Threat request unavailable; check the Worldsoul connection."); return false end
     self.actionPending=true; self.pendingAction=name
     self.actionToken=(self.actionToken or 0)+1; local token=self.actionToken
     self.status:SetText(name=="threat_increase" and "Releasing the outward seal…" or "Bracing the outward seal…")
-    self:RefreshState(UI.StateStore.values); APB:RequestEchoesAction(name)
+    self:RefreshState(UI.StateStore.values); if not APB:RequestEchoesAction(name) then self.actionPending=false; self.pendingAction=nil; self.status:SetText("Threat request could not be dispatched. Check the Worldsoul connection."); self:RefreshState(UI.StateStore.values); UI:Trace("request."..name,"ui","dispatch-failed"); return false end; UI:Trace("request."..name,"ui","dispatched")
     C_Timer.After(5,function() if Screen.active and Screen.actionToken==token and Screen.actionPending then
         Screen.actionPending=false; Screen.pendingAction=nil
         Screen.status:SetText("The gate did not answer. Its state is being read again.")
@@ -436,7 +445,7 @@ function Screen:OnAction(verb,fields)
     elseif not action or not action:find("^threat_") then return end
     local completedAction=action or self.pendingAction
     self.actionPending=false; self.pendingAction=nil
-    if verb=="ACTION_OK" and fields.status=="SUCCESS" then self.status:SetText("World pressure confirmed.")
+    if verb=="ACTION_OK" and fields.status=="SUCCESS" then self.status:SetText("The world answers at "..tostring(fields.threat_name or "the chosen pressure")..".")
     elseif fields.status=="MAXIMUM" then self.status:SetText("Maximum world pressure reached.")
     elseif fields.status=="MINIMUM" or fields.status=="ALREADY_PEACEFUL" then self.status:SetText("The outward gate is already sealed.")
     elseif fields.status=="INVALID_ACTION" then self.status:SetText("That adjustment is not available.")

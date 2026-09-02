@@ -97,7 +97,7 @@ touching it -- see `installer/README.md` for full detail on each):
 installer/bin/echoes.sh install ... --with-playerbots --confirm-playerbots-compatible
 
 # Update an existing installer-managed install to a newer package:
-installer/bin/echoes.sh upgrade ... --target-version 2.1.2
+installer/bin/echoes.sh upgrade ... --target-version 2.1.3
 
 # Restore any installer-owned file that's missing or corrupted:
 installer/bin/echoes.sh repair --azerothcore-root /path/to/your/azerothcore
@@ -448,9 +448,9 @@ If all checks pass, the installation is complete.
 
 ## Updating an Existing Install
 
-### Upgrading from 2.1.0 or 2.1.1 to 2.1.2
+### Upgrading from 2.1.0, 2.1.1, or 2.1.2 to 2.1.3
 
-Run the normal installer-managed upgrade with `--target-version 2.1.2`.
+Run the normal installer-managed upgrade with `--target-version 2.1.3`.
 Existing progression, characters, Rack state, Talents, Mastery, Crucible
 investments, and client settings are preserved. No character reset, database
 wipe, or AzerothCore reinstall is required.
@@ -459,7 +459,7 @@ The running `mod-ale` build must expose `CharDBDirectExecute`. Directory
 presence alone is insufficient: `echoes verify` checks the source-inspectable
 API contract, and the runtime startup check reports unsupported status if the
 capability is absent. Do not edit Lua purchase logic or any `DMLMode` setting;
-2.1.2 contains no environment-identity switch. ALE event 33 initializes Echoes
+2.1.3 contains no environment-identity switch. ALE event 33 initializes Echoes
 after all scripts load on fresh boot and after `reload.ale` rebuilds the state.
 
 `#aptest` is a GM/developer fixture harness, not an installation diagnostic.

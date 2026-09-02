@@ -392,8 +392,8 @@ function Screen:RequestPreview()
 end
 
 function Screen:SelectAnchor(index)
-    if not META[index] then return end; self.selected=index; for value,a in pairs(self.anchors) do a:SetSelected(value==index) end
-    self.selectedJointBed:ClearAllPoints(); self.selectedJointBed:SetPoint(index<=2 and "LEFT" or "RIGHT",self.chamber,index<=2 and "LEFT" or "RIGHT",index<=2 and 18 or -18,({[0]=174,[1]=8,[2]=-180,[3]=132,[4]=-160})[index]); local data=self.stats and self.stats[index]; self.selectedPin:SetVertexColor(data and data.role=="PRIMARY" and .82 or .62,data and data.role=="PRIMARY" and .55 or .34,data and data.role=="PRIMARY" and .20 or .88,.98); self.status:SetText(""); self.previewPending=false; self.previewToken=(self.previewToken or 0)+1; self:RefreshDetail(); self:RequestPreview()
+    if not META[index] then return end; local alreadySelected=self.selected==index; self.selected=index; for value,a in pairs(self.anchors) do a:SetSelected(value==index) end
+    self.selectedJointBed:ClearAllPoints(); self.selectedJointBed:SetPoint(index<=2 and "LEFT" or "RIGHT",self.chamber,index<=2 and "LEFT" or "RIGHT",index<=2 and 18 or -18,({[0]=174,[1]=8,[2]=-180,[3]=132,[4]=-160})[index]); local data=self.stats and self.stats[index]; self.selectedPin:SetVertexColor(data and data.role=="PRIMARY" and .82 or .62,data and data.role=="PRIMARY" and .55 or .34,data and data.role=="PRIMARY" and .20 or .88,.98); self.status:SetText(alreadySelected and "This anchor is already selected." or ""); self.previewPending=false; self.previewToken=(self.previewToken or 0)+1; self:RefreshDetail(); self:RequestPreview()
 end
 
 function Screen:RefreshState(values)
@@ -408,14 +408,14 @@ end
 
 function Screen:Purchase()
     local p=self:PreviewForSelected(); if self.purchasePending or not p or tostring(p.affordable)=="0" then return false end
-    self.purchasePending=true; self.purchaseIndex=self.selected; self.status:SetText("The selected anchor is retaining this rank..."); self:WakeAnchor(self.selected); self:RefreshInvest(); APB:RequestEchoesAction("talent_purchase",self.selected); self.purchaseToken=(self.purchaseToken or 0)+1; local token=self.purchaseToken
+    self.purchasePending=true; self.purchaseIndex=self.selected; self.status:SetText("The selected anchor is retaining this rank..."); self:WakeAnchor(self.selected); self:RefreshInvest(); if not APB:RequestEchoesAction("talent_purchase",self.selected) then self.purchasePending=false; self.status:SetText("Talent request could not be dispatched. Check the Worldsoul connection."); self:RefreshInvest(); UI:Trace("request.talent_purchase","ui","dispatch-failed"); return false end; UI:Trace("request.talent_purchase","ui","dispatched"); self.purchaseToken=(self.purchaseToken or 0)+1; local token=self.purchaseToken
     C_Timer.After(5,function() if Screen.active and Screen.purchasePending and Screen.purchaseToken==token then Screen.purchasePending=false; Screen.status:SetText("No response received. State is being read again."); Screen:RefreshInvest(); if APB.RequestEchoesState then APB:RequestEchoesState() end end end); return true
 end
 
 function Screen:OnAction(verb,fields)
     if not self.active then return end
     if verb=="ACTION_OK" and fields.action=="talent_preview" then self.previewPending=false; local index=tonumber(fields.stat_index); if index~=nil then self.previewCache[index]=fields end; self:RefreshDetail(); if index~=self.selected then self:RequestPreview() end
-    elseif verb=="ACTION_OK" and fields.action=="talent_purchase" then self.purchasePending=false; self.purchaseToken=(self.purchaseToken or 0)+1; if fields.status=="SUCCESS" then self.status:SetText(StatName(fields.stat_index).." retained at rank "..tostring(fields.new_rank).."."); self:WakeAnchor(fields.stat_index); self.previewCache={}; if APB.RequestEchoesState then APB:RequestEchoesState() end elseif fields.status=="INSUFFICIENT_ESSENCE" then self.status:SetText("Not enough Essence for this rank.") elseif fields.status=="MAX_RANK" then self.status:SetText("This anchor is already fully set.") else self.status:SetText("The anchor rejected this investment.") end; self:RefreshInvest()
+    elseif verb=="ACTION_OK" and fields.action=="talent_purchase" then self.purchasePending=false; self.purchaseToken=(self.purchaseToken or 0)+1; if fields.status=="SUCCESS" then self.status:SetText("The pattern takes hold. "..StatName(fields.stat_index).." is rank "..tostring(fields.new_rank).."."); self:WakeAnchor(fields.stat_index); self.previewCache={}; if APB.RequestEchoesState then APB:RequestEchoesState() end elseif fields.status=="INSUFFICIENT_ESSENCE" then self.status:SetText("Not enough Essence for this rank.") elseif fields.status=="MAX_RANK" then self.status:SetText("This anchor is already fully set.") else self.status:SetText("The anchor rejected this investment.") end; self:RefreshInvest()
     elseif verb=="ERROR" and (self.previewPending or self.purchasePending) then local wasPreview=self.previewPending; self.previewPending=false; self.purchasePending=false; self.purchaseToken=(self.purchaseToken or 0)+1; self.status:SetText(fields.code=="RATE_LIMITED" and "The brace is still settling; its reading will resume." or "Talents request unavailable."); self:RefreshDetail(); if wasPreview and fields.code=="RATE_LIMITED" then C_Timer.After(1.05,function() if Screen.active then Screen:RequestPreview() end end) end end
 end
 

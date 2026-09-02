@@ -30,6 +30,7 @@ local C43 = {
     stateStamp = nil,
     stateRequestPending = false,
     stateRequestTime = 0,
+    coreCommunePending = false,
     welcomedObserved = false,
     scale = 1,
     buttons = {},
@@ -95,12 +96,29 @@ status:SetWidth(620)
 status:SetJustifyH("CENTER")
 status:SetPoint("TOP", frame, "TOP", 0, -660)
 status:Hide()
+C43.status = status
 
 local statusElapsed = 0
 local function ShowStatus(text)
     status:SetText(text or "")
     statusElapsed = 0
     status:Show()
+end
+
+local function FormatWhole(value)
+    local number = tonumber(value)
+    if not number then return "—" end
+    return tostring(math.floor(number)):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
+end
+
+local function CoreReading(state)
+    if type(state) ~= "table" then return "The Worldsoul is quiet, but listening." end
+    local rack = FormatWhole(state.rack_used) .. "/" .. FormatWhole(state.rack_cap)
+    return "The Worldsoul answers.\n" ..
+        "Essence " .. FormatWhole(state.essence) .. "  ·  Mastery " .. FormatWhole(state.mastery_rank) ..
+        "  ·  Attuned Items " .. FormatWhole(state.attuned) .. "\n" ..
+        "Rack " .. rack .. "  ·  Threat " .. tostring(state.threat_name or "Peaceful") ..
+        "  ·  Crucible Invested " .. FormatWhole(state.crucible_total_invested)
 end
 
 local essenceSeat = CreateFrame("Frame", nil, frame)
@@ -377,8 +395,12 @@ local function Activate(id)
         BeginClose()
         return
     elseif id == "core" then
+        C43.coreCommunePending = true
         if RequestState() then
-            ShowStatus("Worldsoul state requested.")
+            ShowStatus("You reach toward the Worldsoul…")
+            local UI=EchoesUI; if UI and UI.Trace then UI:Trace("dashboard.core","ui","state-dispatched") end
+        else
+            C43.coreCommunePending = false
         end
     elseif id == "accessibility" then
         local UI=EchoesUI; local screen=UI and UI.ScreenManager and UI.ScreenManager.registry.accessibility
@@ -565,6 +587,12 @@ local function UpdateState(force)
     if not force and C43.stateStamp == echoes.lastStateTime then return end
     C43.stateStamp = echoes.lastStateTime
     C43.stateRequestPending = false
+
+    if C43.coreCommunePending then
+        C43.coreCommunePending = false
+        ShowStatus(CoreReading(echoes.lastState))
+        local UI=EchoesUI; if UI and UI.Trace then UI:Trace("dashboard.core","state","success") end
+    end
 
     local value = tonumber(echoes.lastState.essence)
     if value then
@@ -876,7 +904,7 @@ bootstrap:SetScript("OnEvent", function(self, event)
                 GameTooltip:ClearLines()
                 GameTooltip:AddLine("|cff66ccffEchoes of the Worldsoul|r")
                 GameTooltip:AddLine(" ")
-                GameTooltip:AddLine("|cffffffffLeft-click: Open Dashboard|r")
+                GameTooltip:AddLine("|cffffffffLeft-click: Open/close Echoes Dashboard|r")
                 GameTooltip:AddLine("|cffaaaaaaRight-click: Clear tooltip cache|r")
                 GameTooltip:AddLine("|cffaaaaaaDrag: Move button|r")
                 GameTooltip:Show()

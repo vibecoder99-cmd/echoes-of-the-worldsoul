@@ -159,7 +159,7 @@ pass("functional native Progression state, attunement, slots, navigation, and li
 local threatAction, threatActionSends
 local originalThreatActionRequest=APB.RequestEchoesAction
 local originalThreatStateRequest=APB.RequestEchoesState
-APB.RequestEchoesAction=function(_,name) threatAction=name; threatActionSends=(threatActionSends or 0)+1 end
+APB.RequestEchoesAction=function(_,name) threatAction=name; threatActionSends=(threatActionSends or 0)+1; return true end
 APB.RequestEchoesState=function() end
 local threatNames={"Peaceful","Uneasy","Stirring","Dangerous","Menacing","Hostile","Dire","Cataclysmic","Apocalyptic","Worldbreaker","Ascendant"}
 local function IngestThreat(level,momentum,stamp)
@@ -363,7 +363,7 @@ if crucibleAction~="crucible_invest" or not Crucible.investPending
     fail("Crucible Forge did not enter its local pending state")
 end
 Crucible:OnAction("ACTION_OK",{action="crucible_invest",status="SUCCESS",category="life_leech",amount="5000"})
-if Crucible.investPending or Crucible.status:GetText():find("committed",1,true)==nil then fail("Crucible success did not settle through refresh state") end
+if Crucible.investPending or Crucible.status:GetText():find("seals the investment",1,true)==nil then fail("Crucible success did not settle through refresh state") end
 Crucible.input:SetFocusById("life_leech"); Crucible.input:HandleKey("RIGHT")
 if Crucible.input.focusId~="amount10000" then fail("Crucible spatial navigation did not enter amount rail") end
 if not Crucible.channels.life_leech.selected then fail("moving focus visually deselected the engaged channel") end
@@ -550,6 +550,26 @@ if not coreProof.focused or coreProof.materialPieces[1].frame.__echoesMaterialY 
 end
 coreProof.root:FireEvent("OnLeave")
 pass("Core hover and press layer over persistent material focus")
+
+local originalCoreStateRequest=APB.RequestEchoesState
+local coreStateRequests=0
+APB.RequestEchoesState=function() coreStateRequests=coreStateRequests+1; return true end
+APB.echoes.welcomed=true
+C43.stateRequestPending=false
+Gate.controls.core:Activate("mouse")
+if coreStateRequests~=1 or not C43.coreCommunePending then fail("Core communion did not dispatch authoritative state") end
+if C43.status:GetText()~="You reach toward the Worldsoul…" then fail("Core communion lacked immediate semantic acknowledgement") end
+APB.echoes.lastState={essence="1234",mastery_rank="4",attuned="12",rack_used="3",rack_cap="10",threat_name="Dangerous",crucible_total_invested="500"}
+APB.echoes.lastStateTime=(APB.echoes.lastStateTime or 0)+1
+local dashboardTick=C43.frame:GetScript("OnUpdate"); dashboardTick(C43.frame,.21)
+local coreReading=C43.status:GetText() or ""
+if not coreReading:find("The Worldsoul answers",1,true) or not coreReading:find("Essence 1,234",1,true)
+    or not coreReading:find("Rack 3/10",1,true) or not coreReading:find("Threat Dangerous",1,true) then
+    fail("Core communion did not present the authoritative Worldsoul reading")
+end
+if C43.coreCommunePending then fail("Core communion did not reconcile after STATE") end
+APB.RequestEchoesState=originalCoreStateRequest
+pass("Core communion dispatch, semantic response, and authoritative state summary")
 
 local calibratedIds = {"progression", "talents", "threat", "crucible", "rack", "visage", "core"}
 for _, id in ipairs(calibratedIds) do
@@ -884,6 +904,7 @@ local originalStateRequest = APB.RequestEchoesState
 local actionSends, stateSends = 0, 0
 APB.RequestEchoesAction = function(_,name)
     if name == "mastery_purchase" then actionSends = actionSends + 1 end
+    return true
 end
 APB.RequestEchoesState = function() stateSends = stateSends + 1 end
 EchoesUI.StateStore:Ingest({

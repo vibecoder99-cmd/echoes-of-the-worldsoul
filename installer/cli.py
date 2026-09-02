@@ -254,7 +254,7 @@ def build_parser():
              "pre-installer legacy install) to a newer Echoes package.",
     )
     add_install_like(sp)
-    sp.add_argument("--target-version", required=True, help="Version string to record as installed, e.g. 2.1.2.")
+    sp.add_argument("--target-version", required=True, help="Version string to record as installed, e.g. 2.1.3.")
     sp.set_defaults(func=cmd_upgrade)
 
     sp = sub.add_parser(

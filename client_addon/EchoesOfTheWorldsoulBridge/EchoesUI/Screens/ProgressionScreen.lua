@@ -954,8 +954,15 @@ function Screen:PurchaseMastery()
     self:UpdateMasteryState("pending")
     self.actionStatus:SetText("The apparatus is retaining this rank…")
     self:WakeMastery(false)
-    APB:RequestEchoesAction("mastery_purchase")
-    UI:Debug("purchase activated -> mastery_purchase action sent")
+    if not APB:RequestEchoesAction("mastery_purchase") then
+        self.awaitingPurchaseResult = false
+        self.actionPending = false
+        self.actionStatus:SetText("Mastery request could not be dispatched. Check the Worldsoul connection.")
+        self:RefreshState(UI.StateStore.values)
+        UI:Trace("request.mastery_purchase", "ui", "dispatch-failed")
+        return false
+    end
+    UI:Trace("request.mastery_purchase", "ui", "dispatched")
     C_Timer.After(5.0, function()
         if Screen.active and Screen.actionToken == token and Screen.awaitingPurchaseResult then
             Screen.awaitingPurchaseResult = false
@@ -965,6 +972,7 @@ function Screen:PurchaseMastery()
             Screen:RefreshState(UI.StateStore.values)
         end
     end)
+    return true
 end
 
 function Screen:OnAction(verb, fields)
@@ -972,7 +980,7 @@ function Screen:OnAction(verb, fields)
     if verb == "ERROR" and not self.actionPending then return end
     if verb == "ACTION_OK" then
         local messages = {
-            SUCCESS="Mastery retained.", INSUFFICIENT_ESSENCE="Not enough Essence.",
+            SUCCESS="Your bond with the Worldsoul deepens. Mastery is now rank "..tostring(fields.new_rank or "—")..".", INSUFFICIENT_ESSENCE="Not enough Essence.",
             INVALID_PLAYER="Your progression could not be read.", DATABASE_FAILURE="Retention failed; try again.",
         }
         self.actionStatus:SetText(messages[fields.status] or ("Mastery: "..tostring(fields.status)))
@@ -992,7 +1000,7 @@ function Screen:OnAction(verb, fields)
             if Screen.active and Screen.actionToken == token and Screen.awaitingPurchaseRefresh then
                 Screen.awaitingPurchaseRefresh = false
                 Screen.actionPending = false
-                Screen.actionStatus:SetText("Mastery retained. The new measure is still settling.")
+                Screen.actionStatus:SetText("Your bond with the Worldsoul deepens. Mastery is now rank "..tostring(UI.StateStore.values.mastery_rank or "—")..".")
                 Screen:RefreshState(UI.StateStore.values)
             end
         end)
@@ -1083,7 +1091,7 @@ UI.StateStore:Subscribe(function(values)
     if Screen.awaitingPurchaseRefresh then
         Screen.awaitingPurchaseRefresh = false
         Screen.actionPending = false
-        Screen.actionStatus:SetText("Mastery retained.")
+        Screen.actionStatus:SetText("Your bond with the Worldsoul deepens. Mastery is now rank "..tostring(values.mastery_rank or "—")..".")
         Screen:WakeMastery(true)
     end
     Screen:RefreshState(values)

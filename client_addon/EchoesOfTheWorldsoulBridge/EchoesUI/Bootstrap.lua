@@ -4,7 +4,7 @@
 EchoesUI = EchoesUI or {}
 
 local UI = EchoesUI
-UI.version = "2.1.2"
+UI.version = "2.1.3"
 UI.modules = UI.modules or {}
 
 AttunementPlusBridgeDB = AttunementPlusBridgeDB or { cache = {} }
@@ -61,14 +61,26 @@ function UI:Debug(message)
     print("|cff66ccff[EchoesUI]|r " .. tostring(message))
 end
 
+function UI:Trace(action, source, result)
+    if not self.DB.debug then return end
+    self:Debug("action=" .. tostring(action) .. " source=" .. tostring(source or "system") ..
+        " result=" .. tostring(result or "observed"))
+end
+
 function UI:ReportError(scope, message)
     print("|cffff5555[EchoesUI]|r " .. tostring(scope) .. " failed: " .. tostring(message))
 end
 
 function UI:SafeCall(scope, callback, ...)
+    if type(callback) ~= "function" then
+        self:ReportError(scope, "callback unavailable")
+        self:Trace(scope, "callback", "missing")
+        return false, "callback unavailable"
+    end
     local ok, result = pcall(callback, ...)
     if not ok then
         self:ReportError(scope, result)
+        self:Trace(scope, "callback", "error")
         return false, result
     end
     return true, result

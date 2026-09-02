@@ -11,7 +11,9 @@ def test_structured_rack_route_is_currency_specific_and_truthful():
     assert "return AP.Rack.PurchaseEssenceExpand(" in api
     assert "return AP.Rack.PurchaseExpand(" in api
     assert "preview.expectedEssence" in protocol
-    assert 'fields.status=="SUCCESS" and "Rack state committed."' in client
+    assert 'action=="rack_add" and "The Rack accepts the attunement."' in client
+    assert 'action=="rack_remove" and "The Rack releases the attunement."' in client
+    assert '"The Rack unfolds to "' in client
 
 def test_executecritical_law_is_documented_next_to_critical_write():
     db = (ROOT / "lua_scripts/ap04_db.lua").read_text(encoding="utf-8")

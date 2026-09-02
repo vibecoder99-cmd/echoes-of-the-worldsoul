@@ -5,7 +5,7 @@
 </p>
 
 [![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/badge/release-v2.1.2-blue.svg)](https://github.com/vibecoder99-cmd/echoes-of-the-worldsoul/releases/tag/v2.1.2)
+[![Release](https://img.shields.io/badge/release-v2.1.3-blue.svg)](https://github.com/vibecoder99-cmd/echoes-of-the-worldsoul/releases/tag/v2.1.3)
 [![AzerothCore](https://img.shields.io/badge/AzerothCore-3.3.5a-informational.svg)](https://github.com/azerothcore/azerothcore-wotlk)
 [![Playerbots](https://img.shields.io/badge/Playerbots-optional-lightgrey.svg)](#playerbots-support)
 
@@ -14,9 +14,10 @@ what you do with it: fight with a piece long enough and the Worldsoul begins
 to answer, unlocking permanent stat power, a persistent account-wide
 currency, and cosmetic effects that deepen the longer you stay attuned.
 
-**Current release: [v2.1.2](https://github.com/vibecoder99-cmd/echoes-of-the-worldsoul/releases/tag/v2.1.2)** —
-the spending reliability and ALE runtime compatibility hotfix. Existing 2.1.0
-and 2.1.1 progression remains compatible and requires no reset or database wipe.
+**Current release: [v2.1.3](https://github.com/vibecoder99-cmd/echoes-of-the-worldsoul/releases/tag/v2.1.3)** —
+the interaction reliability and feedback maintenance release. Existing 2.1.0,
+2.1.1, and 2.1.2 progression remains compatible and requires no reset or
+database wipe.
 
 Open source (GPLv3), source-based install, no client modifications beyond an
 additive AddOn and DBC patch.
@@ -483,7 +484,7 @@ echoes-of-the-worldsoul/
 ├── RELEASE_NOTES_v2.0.0-rc1.md
 ├── RELEASE_NOTES_v2.1.0.md
 ├── RELEASE_NOTES_v2.1.1.md
-├── ECHOES-2.1.2-RELEASE-NOTES.md
+├── ECHOES-2.1.3-RELEASE-NOTES.md
 ├── LICENSE
 └── README.md
 ```

@@ -52,6 +52,18 @@ the Lua state. Do not wipe progression, reinstall AzerothCore, edit Lua
 purchase logic, look for a `DMLMode` switch, or repeatedly run `#aptest`.
 `#aptest` is a GM/developer fixture harness and not a player diagnostic.
 
+## A Client Companion control looks unresponsive
+
+Dashboard navigation, focus changes, accessibility settings, and some previews
+are client-local and correctly produce no worldserver-console line. First look
+for a changed screen, selected state, pending/result text, or a disabled reason.
+
+For bounded troubleshooting, enable the client interaction trace with
+`/echoesui debug on`, reproduce the interaction, then disable it with
+`/echoesui debug off`. The trace is off by default and reports control identity,
+activation source, and dispatch/result state without creating fake server
+requests. Callback failures remain visible even while tracing is disabled.
+
 ## Installer says `mod-ale` is missing
 
 This is the same prerequisite as "Eluna" elsewhere in the docs — the

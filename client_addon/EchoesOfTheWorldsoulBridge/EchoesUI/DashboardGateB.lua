@@ -217,7 +217,7 @@ Place(forge,1005,650)
 
 local core = UI.CoreWidget:Create(root, {
     id="core", name="EchoesUINativeCoreHome", label="WORLDSOUL CORE",
-    tooltip="Worldsoul Core — Home", hitWidth=555, hitHeight=430,
+    tooltip="Commune with the Worldsoul", hitWidth=555, hitHeight=430,
     embedded=true, fontSize=16, labelHeight=46,
     environmentCrops={{sourceX=760,sourceY=300,x=185,y=45,w=190,h=190},{sourceX=680,sourceY=450,x=105,y=195,w=135,h=105},{sourceX=925,sourceY=405,x=350,y=150,w=95,h=120}},
     labelX=212, labelY=316, labelWidth=220,
@@ -460,16 +460,20 @@ UI.ScreenManager:Register("dashboardGateB",Gate,true)
 
 SLASH_ECHOESUI1="/echoesui"
 SlashCmdList["ECHOESUI"]=function(inputText)
-    local cmd=(inputText or ""):lower():match("^%s*(%S*)")
+    local normalized=(inputText or ""):lower()
+    local cmd=normalized:match("^%s*(%S*)")
     if cmd=="" or cmd=="dashboard" then Gate:Show()
     elseif cmd=="settings" then Gate:Show("settings")
     elseif cmd=="fallback" or cmd=="off" then Gate:Hide(); print("|cff66ccff[EchoesUI]|r Candidate 43 fallback restored.")
-    elseif cmd=="debug" then UI.DB.debug=not UI.DB.debug; print("|cff66ccff[EchoesUI]|r Development diagnostics "..(UI.DB.debug and "enabled." or "disabled."))
+    elseif cmd=="debug" then
+        local setting=normalized:match("^%s*debug%s+(on|off)%s*$")
+        if setting then UI.DB.debug=setting=="on" else UI.DB.debug=not UI.DB.debug end
+        print("|cff66ccff[EchoesUI]|r Development diagnostics "..(UI.DB.debug and "enabled." or "disabled."))
     elseif cmd=="status" then
         print("|cff66ccff[EchoesUI]|r version="..UI.version.." gate=NativeDashboardCompletion"..
             " native="..tostring(Gate.active).." focus="..tostring(input.focusId)..
             " reducedMotion="..tostring(UI:IsReducedMotion()))
-    else print("|cff66ccff[EchoesUI]|r Commands: /echoesui dashboard | settings | fallback | status | debug") end
+    else print("|cff66ccff[EchoesUI]|r Commands: /echoesui dashboard | settings | fallback | status | debug [on|off]") end
 end
 
 Gate:SetEnabled(UI.flags.nativeDashboardGateB)

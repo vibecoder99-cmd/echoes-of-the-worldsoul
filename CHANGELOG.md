@@ -12,6 +12,25 @@ formal versioning and are kept as-is for context.
 
 ---
 
+## 2.1.3 — Interaction Reliability & Feedback Maintenance
+
+### Improved
+
+- Made the Worldsoul Core an intentional communion/readout interaction using
+  existing authoritative character state
+- Added immediate dispatch-failure feedback and explicit no-op/current-state
+  acknowledgement across major server-bound controls
+- Propagated missing and failed client callbacks instead of leaving false
+  pending states
+- Added keyboard/mouse and reduced-motion-safe acknowledgement parity
+- Added deterministic `/echoesui debug on` and `/echoesui debug off` client
+  action/result tracing for bounded troubleshooting
+- Corrected the minimap interaction tooltip and clarified semantic feedback
+  across Mastery, Talents, World Threat, Crucible, Rack, Forge, and Visage
+
+Protocol version remains 1. No gameplay balance changes or progression reset
+are included.
+
 ## 2.1.2 — Reliability & Runtime Compatibility Hotfix
 
 ### Fixed
