@@ -97,7 +97,7 @@ touching it -- see `installer/README.md` for full detail on each):
 installer/bin/echoes.sh install ... --with-playerbots --confirm-playerbots-compatible
 
 # Update an existing installer-managed install to a newer package:
-installer/bin/echoes.sh upgrade ... --target-version 2.1.4
+installer/bin/echoes.sh upgrade ... --target-version 2.1.5
 
 # Restore any installer-owned file that's missing or corrupted:
 installer/bin/echoes.sh repair --azerothcore-root /path/to/your/azerothcore
@@ -474,6 +474,18 @@ restarts anything, and refuses unknown revisions. Reconfigure and rebuild your
 AzerothCore `worldserver`, restart it using your normal safe procedure, run
 `echoes verify`, and confirm startup reports `CharDBDirectExecute: YES`.
 `reload.ale` alone is insufficient because this is a compiled C++ binding.
+
+### Upgrading from 2.1.4 to 2.1.5
+
+Run the normal installer-managed upgrade with `--target-version 2.1.5`.
+This hotfix deploys only regular root-level `lua_scripts/*.lua` runtime files;
+the repository's `lua_scripts/tests/` developer fixtures are not installed or
+recorded in the live-file manifest.
+
+If `CharDBDirectExecute: YES` was already verified after the 2.1.4 ALE patch
+and worldserver rebuild, do not apply the ALE patch again. The 2.1.5 installer
+recognizes that capability as already available. No progression reset,
+database wipe, AzerothCore reinstall, or client protocol change is required.
 
 ### Upgrading from 2.1.0–2.1.3 to 2.1.4
 

@@ -12,6 +12,20 @@ formal versioning and are kept as-is for context.
 
 ---
 
+## 2.1.5 — Installer Packaging Hotfix
+
+### Fixed
+
+- Classified only regular root-level `lua_scripts/*.lua` files as deployable
+  ALE runtime scripts
+- Excluded developer/test directories such as `lua_scripts/tests/` from live
+  runtime deployment, manifest hashing, verification, and repair ownership
+- Added an isolated installer/verify regression fixture reproducing the exact
+  source layout that caused the 2.1.4 `IsADirectoryError`
+
+The 2.1.4 stock-ALE compatibility behavior is preserved. Protocol version
+remains 1. No gameplay, balance, or schema behavior changes are included.
+
 ## 2.1.4 — Stock ALE Compatibility Corrective Release
 
 ### Fixed

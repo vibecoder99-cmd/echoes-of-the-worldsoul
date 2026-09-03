@@ -16,7 +16,7 @@
 -- ============================================================
 
 INSERT INTO `ap_schema_version` (`id`, `version`)
-VALUES (1, '2.1.4')
+VALUES (1, '2.1.5')
 ON DUPLICATE KEY UPDATE
     `version`    = VALUES(`version`),
     `applied_at` = CURRENT_TIMESTAMP;

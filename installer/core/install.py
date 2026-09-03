@@ -53,6 +53,30 @@ def _now_iso():
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
 
 
+def _runtime_lua_files(lua_src):
+    """Return deployable runtime Lua files in deterministic order.
+
+    Echoes runtime scripts are flat, repo-root ``lua_scripts/*.lua`` files.
+    Subdirectories such as ``lua_scripts/tests`` are developer assets, not
+    runtime deployment units.  Keeping that classification explicit prevents
+    repository tooling from leaking into a live ALE script directory.
+    """
+    return [
+        (name, os.path.join(lua_src, name))
+        for name in sorted(os.listdir(lua_src))
+        if name.endswith(".lua") and os.path.isfile(os.path.join(lua_src, name))
+    ]
+
+
+def _hash_deployed_lua(lua_dst, names):
+    """Hash only installer-deployed Lua files, never shared-directory extras."""
+    return {
+        name: hashing.sha256_file(os.path.join(lua_dst, name))
+        for name in names
+        if os.path.isfile(os.path.join(lua_dst, name))
+    }
+
+
 class InstallOptions:
     def __init__(
         self,
@@ -163,11 +187,13 @@ def install(opts):
         if b:
             manifest_mod.record_backup(m, timestamp, "lua_scripts", b, lua_dst)
     os.makedirs(lua_dst, exist_ok=True)
-    for name in os.listdir(lua_src):
-        shutil.copy2(os.path.join(lua_src, name), os.path.join(lua_dst, name))
+    runtime_lua = _runtime_lua_files(lua_src)
+    for name, src in runtime_lua:
+        shutil.copy2(src, os.path.join(lua_dst, name))
+    deployed_lua_names = [name for name, _src in runtime_lua]
     m["components"]["core_lua"] = {
         "enabled": True,
-        "files": hashing.sha256_tree(lua_dst),
+        "files": _hash_deployed_lua(lua_dst, deployed_lua_names),
         "installed_at": timestamp,
     }
 
@@ -182,7 +208,7 @@ def install(opts):
     )
     m["legacy_retirement"] = m.get("legacy_retirement", {})
     m["legacy_retirement"]["lua"] = {"retired": retired_lua, "left_unproven": unproven_lua}
-    m["components"]["core_lua"]["files"] = hashing.sha256_tree(lua_dst)
+    m["components"]["core_lua"]["files"] = _hash_deployed_lua(lua_dst, deployed_lua_names)
     checkpoint()
 
     # --- CORE: mod-echoes-stats ---

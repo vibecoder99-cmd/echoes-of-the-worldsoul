@@ -169,6 +169,11 @@ run with no external dependencies. The full install/verify test requires
 a disposable MySQL instance, supplied via `ECHOES_TEST_MYSQL_HOST` (and
 `_PORT`/`_USER`/`_PASSWORD`) -- it is skipped, not faked, when absent.
 Never targets a real/live database or a real AzerothCore checkout.
+
+The Lua deployment contract is intentionally flat: only regular root-level
+`lua_scripts/*.lua` files are runtime units. Subdirectories such as
+`lua_scripts/tests/` contain developer fixtures and are excluded from live
+deployment and manifest ownership.
 # Split-root safety
 
 For an unmistakable DML layout (`modules/` at the checkout root and both
