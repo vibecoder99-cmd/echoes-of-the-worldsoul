@@ -715,7 +715,7 @@ local function HandleGossipSelect(player, sender, intid)
                     end, "SendBroadcastMessage mastery buy")
                 elseif result.status == "DATABASE_FAILURE" then
                     AP.Try(function()
-                        AP.RT.SendMessage(player,"|cffff4444[Worldsoul]|r Purchase failed - try again.")
+                        AP.RT.SendMessage(player,"|cffff4444[Worldsoul]|r Purchase unavailable: required database-write capability missing. Your Essence was not spent.")
                     end, "SendBroadcastMessage mastery fail")
                 else
                     AP.Try(function()

@@ -17,6 +17,34 @@ filesystem markers.
 """
 
 import os
+import subprocess
+
+TESTED_ALE_COMMIT = "9eeb1f3c47a81291548874fa4be2f4cde35e2ec3"
+
+
+def _ale_compatibility(modules_dir):
+    ale_root = os.path.join(modules_dir, "mod-ale")
+    if not os.path.isdir(ale_root):
+        return None, False, False
+    try:
+        revision = subprocess.run(
+            ["git", "-C", ale_root, "rev-parse", "HEAD"], check=False,
+            capture_output=True, text=True,
+        ).stdout.strip() or "UNKNOWN"
+    except OSError:
+        revision = "UNKNOWN"
+    try:
+        with open(os.path.join(ale_root, "src", "LuaEngine", "LuaFunctions.cpp"),
+                  encoding="utf-8", errors="ignore") as f:
+            registered = '"CharDBDirectExecute"' in f.read()
+        with open(os.path.join(ale_root, "src", "LuaEngine", "methods", "GlobalMethods.h"),
+                  encoding="utf-8", errors="ignore") as f:
+            methods = f.read()
+        patched = registered and "int CharDBDirectExecute(lua_State* L)" in methods \
+            and "CharacterDatabase.DirectExecute(query);" in methods
+    except OSError:
+        patched = False
+    return revision, revision == TESTED_ALE_COMMIT, patched
 
 
 def describe_azerothcore_root(path):
@@ -27,6 +55,7 @@ def describe_azerothcore_root(path):
         raise FileNotFoundError(f"not a directory: {path}")
 
     modules_dir = os.path.join(path, "modules")
+    ale_revision, ale_revision_supported, ale_direct_execute = _ale_compatibility(modules_dir)
     has_root_lua = os.path.isdir(os.path.join(path, "lua_scripts"))
     has_root_config = os.path.isdir(os.path.join(path, "etc", "modules"))
     # A split Docker/DML-style deployment keeps modules/ (build-time only,
@@ -47,6 +76,9 @@ def describe_azerothcore_root(path):
         "path": path,
         "has_modules_dir": os.path.isdir(modules_dir),
         "has_mod_ale": os.path.isdir(os.path.join(modules_dir, "mod-ale")),
+        "ale_revision": ale_revision,
+        "ale_revision_supported": ale_revision_supported,
+        "ale_chardb_direct_execute": ale_direct_execute,
         "has_mod_playerbots": os.path.isdir(os.path.join(modules_dir, "mod-playerbots")),
         "has_mod_echoes_stats": os.path.isdir(os.path.join(modules_dir, "mod-echoes-stats")),
         "has_mod_echoes_playerbots": os.path.isdir(os.path.join(modules_dir, "mod-echoes-playerbots")),

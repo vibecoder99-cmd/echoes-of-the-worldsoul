@@ -68,6 +68,19 @@ def cmd_discover(args):
         print("AzerothCore root:", json.dumps(info, indent=2))
         ale = prereq.check_mod_ale(args.azerothcore_root)
         print(repr(ale), ale.remediation or "")
+        if info["has_mod_ale"]:
+            state = "APPLIED" if info["ale_chardb_direct_execute"] else "MISSING"
+            support = "SUPPORTED" if info["ale_revision_supported"] else "UNSUPPORTED / UNVERIFIED"
+            print(f"\nALE detected: {info['ale_revision']}")
+            print(f"ALE revision: {support}")
+            print(f"Echoes database-write compatibility (CharDBDirectExecute): {state}")
+            if not info["ale_chardb_direct_execute"]:
+                print("Required before worldserver build:")
+                print(f"  echoes ale-compat --azerothcore-root \"{args.azerothcore_root}\"")
+                if info["ale_revision_supported"]:
+                    print(f"  echoes ale-compat --azerothcore-root \"{args.azerothcore_root}\" --apply")
+                else:
+                    print("Patch application is blocked: the compatibility patch is revision-locked.")
         if info["looks_like_split_dml_layout"]:
             print(
                 "\nDetected split DML-style runtime layout (modules/ at this "
@@ -264,7 +277,7 @@ def build_parser():
              "pre-installer legacy install) to a newer Echoes package.",
     )
     add_install_like(sp)
-    sp.add_argument("--target-version", required=True, help="Version string to record as installed, e.g. 2.1.5.")
+    sp.add_argument("--target-version", required=True, help="Version string to record as installed, e.g. 2.1.6.")
     sp.set_defaults(func=cmd_upgrade)
 
     sp = sub.add_parser(

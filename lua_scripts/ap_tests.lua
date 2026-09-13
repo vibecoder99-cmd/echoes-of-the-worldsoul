@@ -3349,7 +3349,7 @@ local function StartupSelfCheck()
     -- time, but runtime can drift after manual copies or ALE changes.
     expect("SUPPORTED DATABASE WRITE API: CharDBDirectExecute",
         AP.Cap and AP.Cap.Check and AP.Cap.Check("CharDBDirectExecute"),
-        "missing required synchronous write primitive; guarded purchases fail closed")
+        "database reachable/schema checked, but CharDBDirectExecute is unavailable; guarded purchases fail closed and are disabled to protect Essence; run echoes ale-compat --azerothcore-root <path> --apply, rebuild worldserver, and verify CharDBDirectExecute: YES")
 
     if #failures == 0 then
         AP.Log("Startup self-check OK (database write API supported).")

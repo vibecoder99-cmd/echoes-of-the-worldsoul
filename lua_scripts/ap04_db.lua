@@ -244,7 +244,9 @@ function AP.DB.ExecuteCritical(sql, label)
             "CharDBDirectExecute unavailable on this Eluna/ALE build — critical write " ..
             "was NOT executed. (Previously this silently degraded to async CharDBExecute, " ..
             "which broke read-after-write consistency; that behavior has been removed.) " ..
-            "Fix: use an Eluna/ALE build that exposes CharDBDirectExecute.")
+            "Database queries may still be healthy; purchases are disabled to protect Essence. " ..
+            "For supported ALE, run 'echoes ale-compat --azerothcore-root <path> --apply', " ..
+            "then rebuild worldserver and verify CharDBDirectExecute: YES.")
     end
     return false
 end

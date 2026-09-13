@@ -192,3 +192,18 @@ and `echoes verify`, then check the worldserver's Eluna probe output for
 build even though Echoes correctly refuses critical purchases without this
 synchronous write API. Also confirm that the live Lua directory—not a
 disconnected source-root copy—contains one coherent Echoes version.
+# Spending Essence says "Database Unavailable"
+
+**Symptom:** purchases fail while ordinary Echoes state still loads. The world
+log reports `CharDBDirectExecute: NO`.
+
+**Cause:** the ALE compatibility binding required for synchronous guarded
+writes was not compiled into worldserver. This does not mean the character
+database is offline, and the failed operation does not spend Essence.
+
+Stop worldserver, run `echoes ale-compat --azerothcore-root <path>` from the
+Echoes release directory, and apply it with `--apply` only if the dry-run
+recognizes the certified ALE revision. Incrementally rebuild/reinstall
+worldserver, run `echoes verify`, restart it, and confirm
+`CharDBDirectExecute: YES`. Do not reset the database, reinstall the client, or
+repatch `Item.dbc`.

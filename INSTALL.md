@@ -55,6 +55,10 @@ command reference. Example:
 
 ```bash
 installer/bin/echoes.sh discover --azerothcore-root /path/to/your/azerothcore
+installer/bin/echoes.sh ale-compat --azerothcore-root /path/to/your/azerothcore
+# Only after the dry-run recognizes the supported revision:
+installer/bin/echoes.sh ale-compat --azerothcore-root /path/to/your/azerothcore --apply
+# Build/relink worldserver now, before installing Echoes.
 installer/bin/echoes.sh install \
   --azerothcore-root /path/to/your/azerothcore \
   --mysql-user <user> --mysql-password <password> \
@@ -97,7 +101,7 @@ touching it -- see `installer/README.md` for full detail on each):
 installer/bin/echoes.sh install ... --with-playerbots --confirm-playerbots-compatible
 
 # Update an existing installer-managed install to a newer package:
-installer/bin/echoes.sh upgrade ... --target-version 2.1.5
+installer/bin/echoes.sh upgrade ... --target-version 2.1.6
 
 # Restore any installer-owned file that's missing or corrupted:
 installer/bin/echoes.sh repair --azerothcore-root /path/to/your/azerothcore
@@ -208,6 +212,28 @@ because Echoes is expected to damage anything:
 
 ## Step 1 — Install the C++ Modules
 
+### Required ALE compatibility preparation (before building)
+
+From the Echoes release directory, first inspect the ALE source without
+changing it:
+
+```powershell
+installer\bin\echoes.ps1 ale-compat --azerothcore-root C:\path\to\azerothcore
+```
+
+On Linux/WSL, use the equivalent `installer/bin/echoes.sh` command. Only when
+the dry-run reports the certified revision and says the patch is ready, apply
+it explicitly:
+
+```powershell
+installer\bin\echoes.ps1 ale-compat --azerothcore-root C:\path\to\azerothcore --apply
+```
+
+This step supplies the synchronous `CharDBDirectExecute` binding that protects
+Essence purchases. It is required, not optional troubleshooting. Unknown ALE
+revisions are refused and must not be forced. After applying it, continue with
+the module copy and worldserver build below.
+
 The mod ships as two full AzerothCore module source trees, not a patch file.
 Copy them into your AzerothCore checkout's `modules/` directory:
 
@@ -238,6 +264,16 @@ make -j$(nproc)   # or your platform equivalent (MSBuild on Windows)
 
 Confirm the build output mentions `mod-echoes-stats` (and `mod-echoes-playerbots`
 if you copied it) being compiled.
+
+### Repairing an existing affected installation
+
+If spending Essence reports "Database Unavailable" and the world log reports
+`CharDBDirectExecute: NO`, the database itself may still be healthy. Stop
+worldserver, run the dry-run and supported `--apply` commands above, then
+incrementally rebuild/reinstall **worldserver only**. Run `echoes verify`,
+restart worldserver, and confirm `CharDBDirectExecute: YES` and the guarded
+purchase self-check passes. Do not wipe databases, rebuild Playerbots, reinstall
+AzerothCore, or repatch `Item.dbc`; none is related to this failure.
 
 ---
 

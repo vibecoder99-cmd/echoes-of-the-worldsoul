@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.1.6 — ALE Installer Compatibility Hotfix
+
+- Corrected the manual install order so the revision-locked ALE database-write
+  compatibility patch is applied before worldserver is built.
+- Added explicit ALE revision, `CharDBDirectExecute`, and remediation reporting
+  to discovery and verification.
+- Replaced the misleading purchase database error with a protected-write
+  capability message that confirms Essence was not spent.
+- No gameplay, database-schema, save, or item-data changes.
+
 Feature evolution by milestone. This is not a commit log — each entry describes
 what a phase introduced and why, not every individual change made during it.
 

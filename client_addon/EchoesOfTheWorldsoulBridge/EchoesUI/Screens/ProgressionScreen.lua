@@ -981,7 +981,7 @@ function Screen:OnAction(verb, fields)
     if verb == "ACTION_OK" then
         local messages = {
             SUCCESS="Your bond with the Worldsoul deepens. Mastery is now rank "..tostring(fields.new_rank or "—")..".", INSUFFICIENT_ESSENCE="Not enough Essence.",
-            INVALID_PLAYER="Your progression could not be read.", DATABASE_FAILURE="Retention failed; try again.",
+            INVALID_PLAYER="Your progression could not be read.", DATABASE_FAILURE="Purchase unavailable: required database-write capability missing. Your Essence was not spent.",
         }
         self.actionStatus:SetText(messages[fields.status] or ("Mastery: "..tostring(fields.status)))
     else

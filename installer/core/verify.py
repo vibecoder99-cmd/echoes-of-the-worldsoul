@@ -33,8 +33,12 @@ def verify(azerothcore_root, mysql_args=None, characters_database=None):
     ale = prereq.check_mod_ale(azerothcore_root)
     checks.append(Check("mod-ale prerequisite", PASS if ale.present else FAIL, ale.remediation or ""))
     ale_direct = prereq.check_mod_ale_direct_execute(azerothcore_root)
-    checks.append(Check("mod-ale synchronous write API", PASS if ale_direct.present else FAIL,
+    checks.append(Check("ALE compatibility", PASS if ale_direct.present else FAIL,
                         ale_direct.remediation or ""))
+    checks.append(Check("CharDBDirectExecute", PASS if ale_direct.present else FAIL,
+                        "AVAILABLE" if ale_direct.present else "MISSING"))
+    checks.append(Check("guarded Echoes database writes", PASS if ale_direct.present else FAIL,
+                        "READY" if ale_direct.present else "DISABLED TO PROTECT ESSENCE"))
 
     roots = manifest_mod.effective_roots(m)
 
