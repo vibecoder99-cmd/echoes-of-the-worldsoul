@@ -15,6 +15,16 @@ import json
 import os
 import sys
 
+MINIMUM_PYTHON = (3, 7)
+if sys.version_info < MINIMUM_PYTHON:
+    detected = ".".join(str(part) for part in sys.version_info[:3])
+    print(
+        "Echoes installer requires Python 3.7 or newer. Detected: " + detected
+        + ". Install/update Python and rerun this command.",
+        file=sys.stderr,
+    )
+    raise SystemExit(2)
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from core import ale_compat, client_package, discovery, install, prereq, repair, uninstall, upgrade, verify
@@ -72,6 +82,11 @@ def cmd_discover(args):
             state = "APPLIED" if info["ale_chardb_direct_execute"] else "MISSING"
             support = "SUPPORTED" if info["ale_revision_supported"] else "UNSUPPORTED / UNVERIFIED"
             print(f"\nALE detected: {info['ale_revision']}")
+            print(f"ALE source: {os.path.join(args.azerothcore_root, 'modules', 'mod-ale')}")
+            print(f"Identity method: {info['ale_identity_method']}")
+            print(f"Git root: {info['ale_git_root'] or 'N/A'}")
+            print(f"Git metadata: {info['ale_git_metadata']}")
+            print(f"Source fingerprint: {info['ale_source_fingerprint']}")
             print(f"ALE revision: {support}")
             print(f"Echoes database-write compatibility (CharDBDirectExecute): {state}")
             if not info["ale_chardb_direct_execute"]:

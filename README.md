@@ -5,7 +5,7 @@
 </p>
 
 [![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/badge/release-v2.1.6-blue.svg)](https://github.com/vibecoder99-cmd/echoes-of-the-worldsoul/releases/tag/v2.1.6)
+[![Release](https://img.shields.io/badge/release-v2.1.7-blue.svg)](https://github.com/vibecoder99-cmd/echoes-of-the-worldsoul/releases/tag/v2.1.7)
 [![AzerothCore](https://img.shields.io/badge/AzerothCore-3.3.5a-informational.svg)](https://github.com/azerothcore/azerothcore-wotlk)
 [![Playerbots](https://img.shields.io/badge/Playerbots-optional-lightgrey.svg)](#playerbots-support)
 
@@ -14,11 +14,11 @@ what you do with it: fight with a piece long enough and the Worldsoul begins
 to answer, unlocking permanent stat power, a persistent account-wide
 currency, and cosmetic effects that deepen the longer you stay attuned.
 
-**Current release: [v2.1.6](https://github.com/vibecoder99-cmd/echoes-of-the-worldsoul/releases/tag/v2.1.6)** —
-an installer/documentation compatibility hotfix that makes the required ALE
-patch happen before worldserver is built and reports guarded-write readiness
-clearly. It requires no gameplay, schema, save, item-data, or progression
-changes.
+**Current release: [v2.1.7](https://github.com/vibecoder99-cmd/echoes-of-the-worldsoul/releases/tag/v2.1.7)** —
+an installer identity-detection hotfix for archive-installed ALE sources. It
+prevents a parent AzerothCore revision from being mislabeled as ALE identity
+and adds certified source fingerprints plus explicit Python/PowerShell guidance.
+It requires no gameplay, schema, save, item-data, or progression changes.
 
 Open source (GPLv3), source-based install, no client modifications beyond an
 additive AddOn and DBC patch.
@@ -30,6 +30,9 @@ ALE compatibility apply → build worldserver → install → verify**. Run the
 commands from the extracted Echoes release directory. The compatibility patch
 is revision-locked and an unknown ALE revision is refused rather than modified.
 See [INSTALL.md](INSTALL.md) for both PowerShell and Linux/WSL commands.
+On Windows, open PowerShell in the extracted Echoes folder and run commands as
+`.\installer\bin\echoes.ps1 ...`; do not double-click the script. Python 3.7 or
+newer is required, and unsupported versions receive an explicit diagnostic.
 
 New to Echoes? You don't need to know what AzerothCore, Eluna, or an MPQ
 is before picking a path below — each linked page explains what it needs,
@@ -394,7 +397,7 @@ rights beyond what's stated here.
 | Docker / DML-style split layout | Optional, supported | `--lua-root`/`--config-root`; auto-detected by `discover` |
 | Windows | Tested | `installer\bin\echoes.ps1`; RelWithDebInfo build |
 | Linux / WSL | Tested | `installer/bin/echoes.sh`; used for the live DML certification this release |
-| Python 3.6+ | Required | For the installer and DBC patch tooling |
+| Python 3.7+ | Required | For the installer and DBC patch tooling; older versions receive an explicit diagnostic |
 
 Do not read this as a guarantee across every possible AzerothCore fork or
 Eluna build — see [Compatibility Evidence](#compatibility-evidence) for
@@ -492,7 +495,7 @@ echoes-of-the-worldsoul/
 ├── RELEASE_NOTES_v2.0.0-rc1.md
 ├── RELEASE_NOTES_v2.1.0.md
 ├── RELEASE_NOTES_v2.1.1.md
-├── ECHOES-2.1.6-RELEASE-NOTES.md
+├── ECHOES-2.1.7-RELEASE-NOTES.md
 ├── ECHOES-2.1.4-RELEASE-NOTES.md
 ├── LICENSE
 └── README.md

@@ -13,7 +13,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 if ! command -v python3 >/dev/null 2>&1; then
-  echo "ERROR: python3 not found on PATH. The Echoes installer requires Python 3." >&2
+  echo "ERROR: python3 not found on PATH. The Echoes installer requires Python 3.7 or newer." >&2
+  exit 1
+fi
+
+detected_version="$(python3 -c 'import sys; print(".".join(map(str, sys.version_info[:3])))')"
+if ! python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 7) else 1)'; then
+  echo "ERROR: Echoes installer requires Python 3.7 or newer. Detected: $detected_version. Install/update Python and rerun this command." >&2
   exit 1
 fi
 

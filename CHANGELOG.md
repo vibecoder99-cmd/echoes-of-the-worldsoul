@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.1.7 — ALE Revision Detection Hotfix
+
+- Prevented archive-installed `mod-ale` from inheriting and reporting the
+  parent AzerothCore repository's revision.
+- Added strict certified preimage and post-patch source fingerprints for ALE
+  archives without independent Git metadata.
+- Added an explicit Python 3.7 minimum-version diagnostic and newcomer-tested
+  PowerShell invocation instructions.
+- No gameplay, schema, save, progression, balance, or item-data changes.
+
 ## 2.1.6 — ALE Installer Compatibility Hotfix
 
 - Corrected the manual install order so the revision-locked ALE database-write

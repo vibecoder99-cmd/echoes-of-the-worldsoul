@@ -53,6 +53,15 @@ deployment, patch-E.MPQ build) and produce a tracked install manifest so
 is the tested, supported path -- see `installer/README.md` for the full
 command reference. Example:
 
+On Windows, do not double-click the `.ps1` file—that may open it in an editor.
+Open PowerShell in the extracted Echoes folder and invoke it with `.` and a
+backslash, for example:
+
+```powershell
+.\installer\bin\echoes.ps1 discover --azerothcore-root C:\path\to\azerothcore
+.\installer\bin\echoes.ps1 ale-compat --azerothcore-root C:\path\to\azerothcore
+```
+
 ```bash
 installer/bin/echoes.sh discover --azerothcore-root /path/to/your/azerothcore
 installer/bin/echoes.sh ale-compat --azerothcore-root /path/to/your/azerothcore
@@ -156,7 +165,7 @@ Before starting, confirm you have:
   `installer/bin/echoes.sh discover --azerothcore-root ...`.
 - **MySQL** — access to both `acore_characters` and `acore_world` databases with
   enough privileges to run `CREATE TABLE` and `INSERT`.
-- **Python 3.6+** — needed only for the DBC patch step. `python --version` to
+- **Python 3.7+** — required by the installer. `python --version` to
   confirm.
 - **WoW 3.3.5a client (build 12340, enUS)** — a clean, unmodified copy for the
   client-side steps. The current Battle.net client is not a drop-in replacement.
@@ -233,6 +242,12 @@ This step supplies the synchronous `CharDBDirectExecute` binding that protects
 Essence purchases. It is required, not optional troubleshooting. Unknown ALE
 revisions are refused and must not be forced. After applying it, continue with
 the module copy and worldserver build below.
+
+An ALE source archive has no independent `.git` metadata. Echoes never accepts
+the enclosing AzerothCore repository's HEAD as ALE identity. It accepts an
+archive only when exact fingerprints of both patch-dependent upstream files
+match the certified snapshot; otherwise it fails closed and asks for an
+independent clone of the certified commit.
 
 The mod ships as two full AzerothCore module source trees, not a patch file.
 Copy them into your AzerothCore checkout's `modules/` directory:

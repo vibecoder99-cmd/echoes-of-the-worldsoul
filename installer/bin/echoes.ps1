@@ -18,7 +18,14 @@ if (-not $python) {
     $python = Get-Command python3 -ErrorAction SilentlyContinue
 }
 if (-not $python) {
-    Write-Error "Python was not found on PATH. The Echoes installer requires Python 3."
+    Write-Error "Python was not found on PATH. The Echoes installer requires Python 3.7 or newer."
+    exit 1
+}
+
+$detectedVersion = & $python.Source -c "import sys; print('.'.join(map(str, sys.version_info[:3])))"
+$supported = & $python.Source -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 7) else 1)"
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Echoes installer requires Python 3.7 or newer. Detected: $detectedVersion. Install/update Python and rerun this command."
     exit 1
 }
 
